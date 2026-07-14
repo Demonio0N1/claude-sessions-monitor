@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# csm — lanzador de sesiones de Claude Code monitorizadas (dentro de tmux).
+# Uso:
+#   csm [args de claude...]   crea/reusa la sesión tmux de este directorio y abre Claude
+#   csm ls                    lista las sesiones csm
+#   csm attach <nombre>       se engancha a una sesión existente
+#   csm help                  esta ayuda
+set -euo pipefail
+
+die() { echo "csm: $*" >&2; exit 1; }
+
+command -v tmux >/dev/null 2>&1 || die "tmux no está instalado (macOS: brew install tmux | Debian: sudo apt install tmux)"
+
+usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
+
+session_base() {
+  local base
+  base=$(basename "$PWD" | tr -c 'a-zA-Z0-9_-' '-' | sed -e 's/^-*//' -e 's/-*$//')
+  echo "csm-${base:-session}"
+}
+
+attach_to() {
+  if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$1"
+  else
+    tmux attach -t "$1"
+  fi
+}
+
+case "${1:-}" in
+  ls)
+    tmux list-sessions -F '#{session_name}  (#{session_windows} win, creada #{t:session_created})' 2>/dev/null \
+      | grep '^csm-' || echo "No hay sesiones csm."
+    exit 0
+    ;;
+  attach)
+    [ -n "${2:-}" ] || die "uso: csm attach <nombre>"
+    attach_to "$2"
+    exit 0
+    ;;
+  help | -h | --help)
+    usage
+    exit 0
+    ;;
+esac
+
+# csm [args...] → crea o reusa la sesión de este directorio
+base=$(session_base)
+name="$base"
+i=2
+# si el nombre está tomado por OTRO directorio (mismo basename), busca sufijo libre
+while tmux has-session -t "=$name" 2>/dev/null; do
+  existing=$(tmux display-message -p -t "$name" '#{pane_current_path}' 2>/dev/null || echo '')
+  if [ "$existing" = "$PWD" ]; then
+    echo "Reconectando a la sesión existente '$name'..."
+    attach_to "$name"
+    exit 0
+  fi
+  name="$base-$i"
+  i=$((i + 1))
+done
+
+echo "Creando sesión '$name' en $PWD ..."
+tmux new-session -d -s "$name" -c "$PWD" claude "$@"
+attach_to "$name"

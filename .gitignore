@@ -1,0 +1,8 @@
+node_modules/
+dist/
+hub/data/
+hub/public/bin/*
+!hub/public/bin/.gitkeep
+web/public/icons/*.png
+*.log
+.DS_Store
