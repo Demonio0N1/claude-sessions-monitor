@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -40,6 +41,11 @@ func main() {
 		if err := serviceCmd(os.Args[2:]); err != nil {
 			log.Fatal(err)
 		}
+	case "scan":
+		// diagnóstico: imprime lo que el agente detecta ahora mismo
+		hs := newHookState()
+		data, _ := json.MarshalIndent(scanSessions(hs), "", "  ")
+		fmt.Println(string(data))
 	case "version", "--version", "-v":
 		fmt.Println(version)
 	default:

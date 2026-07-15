@@ -87,12 +87,33 @@ el agente sobreviva al logout: `sudo loginctl enable-linger $USER`.
 ```bash
 cd ~/mi-proyecto
 csm                 # crea (o reconecta a) la sesión tmux "csm-mi-proyecto" y abre Claude
-csm --resume        # los argumentos extra se pasan a claude
+                    # si hay conversación previa en el directorio, la retoma con --continue
+csm --new           # ignora la conversación previa y empieza de cero
 csm ls              # lista las sesiones csm
 csm attach <nombre> # toma control manual de cualquier sesión
 ```
 
 Dentro de tmux: `Ctrl-b d` te desconecta dejando a Claude trabajando.
+
+Detalle técnico: csm lanza Claude envuelto en `sh -c` para que no sea hijo directo de
+tmux — si lo fuera, tmux le enviaría SIGCONT automáticamente y la pausa (SIGSTOP)
+desde la app no se sostendría. Sesiones creadas con versiones viejas de csm no se
+pueden pausar (la app lo avisa); basta terminarlas y relanzarlas con `csm`.
+
+### Control remoto desde la app (fase 2)
+
+En el detalle de una sesión:
+
+- **Enviar prompts** (solo sesiones tmux): campo de texto al pie de la terminal, con
+  historial local de enviados (botón 🕘) y protección contra doble envío. El texto se
+  inyecta con `tmux send-keys` y la respuesta se ve en la terminal en vivo.
+- **⏸ Pausar / ▶ Reanudar**: SIGSTOP/SIGCONT; la sesión queda con el estado azul
+  "Pausada". El agente verifica que la pausa se sostuvo antes de confirmar.
+- **⏹ Terminar**: confirmación obligatoria mostrando sesión y máquina; envía SIGTERM
+  y, si el proceso sigue vivo a los ~6 s, ofrece forzar con SIGKILL.
+
+Las sesiones de visibilidad limitada (fuera de tmux) solo admiten pausar/terminar
+(señales al PID); la app muestra cómo migrarlas a csm.
 
 ## Seguridad
 
@@ -102,19 +123,32 @@ Dentro de tmux: `Ctrl-b d` te desconecta dejando a Claude trabajando.
 - El canal de la app (navegador → hub) no pide login en el MVP: cualquier dispositivo de
   tu tailnet puede ver el panel. Si compartes la tailnet, añade auth antes.
 
-## Limitaciones conocidas (MVP)
+## Limitaciones conocidas
 
 - El estado por hooks se correlaciona por **directorio de trabajo**: dos sesiones de
   Claude en el MISMO directorio comparten estado.
 - La captura de terminal es un snapshot de pane cada 1 s (solo se envía si cambió).
 - Si el agente se reinicia, los estados vuelven a "inactiva" hasta el siguiente evento.
-- Sin control remoto todavía (fase 2), sin capturas gráficas (fase 3) ni push (fase 4).
+- Pausar congela el proceso principal de Claude; comandos hijos ya lanzados (tests,
+  builds) siguen corriendo hasta terminar.
+
+## Notas de implementación (aprendidas a golpes)
+
+- **Locale y tmux como servicio**: bajo launchd/systemd no hay `LANG`, y en locale C
+  el cliente tmux reemplaza por `_` cualquier byte no imprimible de sus argumentos
+  (rompía formatos con tab y corrompería prompts con acentos). El agente fuerza un
+  locale UTF-8 en cada llamada a tmux (`tmuxCmd`).
+- **tmux reanuda a sus hijos directos**: si el proceso del pane recibe SIGSTOP, el
+  servidor tmux le manda SIGCONT al instante. Por eso csm envuelve a Claude en `sh -c`.
+- **PATH mínimo en servicios**: el agente localiza el binario tmux por sí mismo
+  (`/opt/homebrew/bin`, `/usr/local/bin`, …), no confía en el PATH del servicio.
+- **lsof escapa no-ASCII**: los cwd con tildes llegan como `\xNN` y se decodifican.
 
 ## Roadmap
 
 1. ✅ **MVP**: agentes + vista general + detalle con terminal en vivo.
-2. ⬜ **Control**: enviar prompts (`tmux send-keys`), pausar/reanudar (SIGSTOP/SIGCONT),
-   terminar — con confirmación.
+2. ✅ **Control**: enviar prompts (`tmux send-keys`), pausar/reanudar (SIGSTOP/SIGCONT),
+   terminar (SIGTERM→SIGKILL) — con confirmación y toasts.
 3. ⬜ **Visualización gráfica**: captura bajo demanda, modo 1–2 fps, túnel de puertos
    para ver web apps generadas en remoto.
 4. ⬜ **Notificaciones**: Web Push cuando una sesión termina, espera input o falla.

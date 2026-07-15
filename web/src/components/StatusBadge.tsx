@@ -4,6 +4,7 @@ const STYLES: Record<SessionStatus, { label: string; cls: string; dot: string; p
   active: { label: 'Activa', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40', dot: 'bg-emerald-400', pulse: true },
   waiting_input: { label: 'Esperando input', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40', dot: 'bg-amber-400', pulse: true },
   idle: { label: 'Inactiva', cls: 'bg-zinc-500/15 text-zinc-300 border-zinc-500/40', dot: 'bg-zinc-400' },
+  paused: { label: 'Pausada', cls: 'bg-sky-500/15 text-sky-300 border-sky-500/40', dot: 'bg-sky-400' },
   error: { label: 'Error', cls: 'bg-red-500/15 text-red-300 border-red-500/40', dot: 'bg-red-400', pulse: true },
   ended: { label: 'Terminada', cls: 'bg-zinc-600/15 text-zinc-400 border-zinc-600/40', dot: 'bg-zinc-500' },
 };

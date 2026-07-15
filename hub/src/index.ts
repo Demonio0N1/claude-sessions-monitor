@@ -48,6 +48,9 @@ app.get('/ws/agent', { websocket: true }, (socket: WebSocket) => {
       case 'event':
         state.onEvent(machineId, msg.sessionId, msg.cwd, msg.event);
         break;
+      case 'action_result':
+        state.resolveAction(msg.requestId, msg.ok, msg.message);
+        break;
       case 'pong':
         break;
     }
@@ -80,6 +83,8 @@ app.get('/ws/app', { websocket: true }, (socket: WebSocket) => {
     }
     if (msg.type === 'subscribe') state.appSubscribe(socket, msg.sessionId);
     else if (msg.type === 'unsubscribe') state.appUnsubscribe(socket, msg.sessionId);
+    else if (msg.type === 'action' && msg.requestId && msg.sessionId)
+      state.dispatchAction(socket, msg.requestId, msg.sessionId, msg.action, msg.text);
   });
   socket.on('close', () => state.appDisconnected(socket));
   socket.on('error', () => socket.terminate());

@@ -5,7 +5,6 @@ import (
 	"hash/fnv"
 	"log"
 	"net/url"
-	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -103,8 +102,8 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 	}()
 
 	authenticated := false
-	subs := map[string]bool{}      // sessionId suscritos por el hub
-	paneOf := map[string]string{}  // sessionId -> tmux pane
+	subs := map[string]bool{}          // sessionId suscritos por el hub
+	sessById := map[string]Session{}   // último scan, para captura y acciones
 	lastOutHash := map[string]uint64{}
 	var lastSessionsJSON string
 	lastSessionsSent := time.Time{}
@@ -116,13 +115,11 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 
 	doScan := func() bool {
 		sessions := scanSessions(hs)
-		for id := range paneOf {
-			delete(paneOf, id)
+		for id := range sessById {
+			delete(sessById, id)
 		}
 		for _, s := range sessions {
-			if s.paneID != "" {
-				paneOf[s.ID] = s.paneID
-			}
+			sessById[s.ID] = s
 		}
 		js, _ := json.Marshal(sessions)
 		if string(js) != lastSessionsJSON || time.Since(lastSessionsSent) > 15*time.Second {
@@ -161,6 +158,25 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 				if id, ok := msg["sessionId"].(string); ok {
 					delete(subs, id)
 				}
+			case "action":
+				requestId, _ := msg["requestId"].(string)
+				id, _ := msg["sessionId"].(string)
+				action, _ := msg["action"].(string)
+				text, _ := msg["text"].(string)
+				ok := false
+				result := "sesión no encontrada (¿terminó?)"
+				if s, found := sessById[id]; found {
+					ok, result = performAction(s, action, text)
+					log.Printf("[action] %s sobre %s: ok=%v %s", action, id, ok, result)
+				}
+				if !send(map[string]any{"type": "action_result", "requestId": requestId, "ok": ok, "message": result}) {
+					return authenticated
+				}
+				// refleja el efecto (pausada, terminada…) sin esperar al próximo tick
+				time.Sleep(200 * time.Millisecond)
+				if !doScan() {
+					return authenticated
+				}
 			}
 
 		case <-scanTick.C:
@@ -170,11 +186,11 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 
 		case <-capTick.C:
 			for id := range subs {
-				pane, ok := paneOf[id]
-				if !ok {
+				s, found := sessById[id]
+				if !found || s.paneID == "" {
 					continue
 				}
-				data, ok := capturePane(pane)
+				data, ok := capturePane(s.paneID)
 				if !ok {
 					continue
 				}
@@ -224,7 +240,7 @@ func sessionIDsByCwd(hs *hookState, cwd string) map[string]Session {
 }
 
 func capturePane(paneID string) (string, bool) {
-	out, err := exec.Command("tmux", "capture-pane", "-p", "-e", "-t", paneID, "-S", "-300").Output()
+	out, err := tmuxCmd("capture-pane", "-p", "-e", "-t", paneID, "-S", "-300").Output()
 	if err != nil {
 		return "", false
 	}

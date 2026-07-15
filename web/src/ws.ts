@@ -43,8 +43,12 @@ class WSClient {
     for (const l of this.statusListeners) l(s);
   }
 
-  private raw(msg: unknown): void {
+  send(msg: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  }
+
+  private raw(msg: unknown): void {
+    this.send(msg);
   }
 
   subscribe(sessionId: string): void {

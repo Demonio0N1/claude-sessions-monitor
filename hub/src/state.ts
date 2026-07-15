@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import type { HubToAgent, HubToApp, MachineInfo, MachineState, SessionInfo } from './types.js';
+import type { ActionKind, HubToAgent, HubToApp, MachineInfo, MachineState, SessionInfo } from './types.js';
 import * as db from './db.js';
 
 interface Machine {
@@ -149,6 +149,42 @@ function removeSub(globalId: string, ws: WebSocket): void {
     const [mid, sid] = splitGid(globalId);
     send(machines.get(mid)?.ws ?? null, { type: 'unsubscribe', sessionId: sid });
   }
+}
+
+// ---- acciones de control (app → agente y respuesta de vuelta) ----
+
+const pendingActions = new Map<string, { ws: WebSocket; timer: NodeJS.Timeout }>();
+
+export function dispatchAction(
+  appWs: WebSocket,
+  requestId: string,
+  globalId: string,
+  action: ActionKind,
+  text?: string,
+): void {
+  const reply = (ok: boolean, message: string) =>
+    send(appWs, { type: 'action_result', requestId, ok, message });
+
+  const [mid, sid] = splitGid(globalId);
+  const machine = machines.get(mid);
+  if (!machine || !machine.online || !machine.ws) {
+    reply(false, 'la máquina está offline');
+    return;
+  }
+  const timer = setTimeout(() => {
+    pendingActions.delete(requestId);
+    reply(false, 'el agente no respondió (timeout)');
+  }, 10_000);
+  pendingActions.set(requestId, { ws: appWs, timer });
+  send(machine.ws, { type: 'action', requestId, sessionId: sid, action, text });
+}
+
+export function resolveAction(requestId: string, ok: boolean, message?: string): void {
+  const pending = pendingActions.get(requestId);
+  if (!pending) return;
+  pendingActions.delete(requestId);
+  clearTimeout(pending.timer);
+  send(pending.ws, { type: 'action_result', requestId, ok, message });
 }
 
 // ---- snapshot y difusión ----

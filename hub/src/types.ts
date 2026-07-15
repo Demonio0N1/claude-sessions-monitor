@@ -1,4 +1,6 @@
-export type SessionStatus = 'active' | 'waiting_input' | 'idle' | 'error' | 'ended';
+export type SessionStatus = 'active' | 'waiting_input' | 'idle' | 'paused' | 'error' | 'ended';
+
+export type ActionKind = 'send_prompt' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
 export interface SessionInfo {
   /** Id local a la máquina, ej. "tmux:%3" o "pid:1234" */
@@ -41,6 +43,7 @@ export type AgentMsg =
   | { type: 'sessions'; sessions: SessionInfo[] }
   | { type: 'output'; sessionId: string; data: string; full: boolean }
   | { type: 'event'; sessionId?: string; cwd?: string; event: HookEvent }
+  | { type: 'action_result'; requestId: string; ok: boolean; message?: string }
   | { type: 'pong' };
 
 // hub -> agente
@@ -49,14 +52,17 @@ export type HubToAgent =
   | { type: 'error'; message: string }
   | { type: 'subscribe'; sessionId: string }
   | { type: 'unsubscribe'; sessionId: string }
+  | { type: 'action'; requestId: string; sessionId: string; action: ActionKind; text?: string }
   | { type: 'ping' };
 
 // hub -> app
 export type HubToApp =
   | { type: 'state'; machines: MachineState[] }
-  | { type: 'output'; sessionId: string; data: string; full: boolean };
+  | { type: 'output'; sessionId: string; data: string; full: boolean }
+  | { type: 'action_result'; requestId: string; ok: boolean; message?: string };
 
 // app -> hub
 export type AppMsg =
   | { type: 'subscribe'; sessionId: string }
-  | { type: 'unsubscribe'; sessionId: string };
+  | { type: 'unsubscribe'; sessionId: string }
+  | { type: 'action'; requestId: string; sessionId: string; action: ActionKind; text?: string };

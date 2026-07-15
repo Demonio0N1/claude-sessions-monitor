@@ -1,0 +1,43 @@
+import type { ActionKind } from './types';
+import { wsClient } from './ws';
+
+export interface ActionResult {
+  ok: boolean;
+  message?: string;
+}
+
+/** Envía una acción de control y espera la respuesta del agente (vía hub). */
+export function runAction(sessionId: string, action: ActionKind, text?: string): Promise<ActionResult> {
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      off();
+      resolve({ ok: false, message: 'sin respuesta del hub (timeout)' });
+    }, 12_000);
+    const off = wsClient.onMessage((msg) => {
+      if (msg.type === 'action_result' && msg.requestId === requestId) {
+        clearTimeout(timer);
+        off();
+        resolve({ ok: msg.ok, message: msg.message });
+      }
+    });
+    wsClient.send({ type: 'action', requestId, sessionId, action, text });
+  });
+}
+
+// ---- historial local de prompts enviados (por sesión) ----
+
+const HISTORY_MAX = 20;
+
+export function promptHistory(globalId: string): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(`csm-prompts:${globalId}`) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+export function rememberPrompt(globalId: string, text: string): void {
+  const list = [text, ...promptHistory(globalId).filter((p) => p !== text)].slice(0, HISTORY_MAX);
+  localStorage.setItem(`csm-prompts:${globalId}`, JSON.stringify(list));
+}

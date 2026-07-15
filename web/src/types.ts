@@ -1,4 +1,6 @@
-export type SessionStatus = 'active' | 'waiting_input' | 'idle' | 'error' | 'ended';
+export type SessionStatus = 'active' | 'waiting_input' | 'idle' | 'paused' | 'error' | 'ended';
+
+export type ActionKind = 'send_prompt' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
 export interface SessionInfo {
   id: string;
@@ -31,7 +33,8 @@ export interface MachineState {
 
 export type HubToApp =
   | { type: 'state'; machines: MachineState[] }
-  | { type: 'output'; sessionId: string; data: string; full: boolean };
+  | { type: 'output'; sessionId: string; data: string; full: boolean }
+  | { type: 'action_result'; requestId: string; ok: boolean; message?: string };
 
 export interface EventRow {
   kind: string;

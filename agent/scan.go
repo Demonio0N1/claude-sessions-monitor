@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,8 +10,59 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+var (
+	tmuxOnce sync.Once
+	tmuxBin  string
+)
+
+// tmuxPath localiza tmux aunque el agente corra como servicio con PATH mínimo
+// (launchd/systemd no incluyen /opt/homebrew/bin ni /usr/local/bin).
+func tmuxPath() string {
+	tmuxOnce.Do(func() {
+		if p, err := exec.LookPath("tmux"); err == nil {
+			tmuxBin = p
+			return
+		}
+		for _, p := range []string{"/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"} {
+			if _, err := os.Stat(p); err == nil {
+				tmuxBin = p
+				return
+			}
+		}
+		tmuxBin = "tmux"
+	})
+	return tmuxBin
+}
+
+// tmuxCmd construye un comando tmux garantizando locale UTF-8: como servicio
+// (launchd/systemd) no hay LANG, y en locale C el cliente tmux reemplaza por
+// "_" cualquier byte no imprimible de los argumentos — rompía el formato con
+// tabs de list-panes y corrompería prompts con acentos en send-keys.
+func tmuxCmd(args ...string) *exec.Cmd {
+	cmd := exec.Command(tmuxPath(), args...)
+	env := os.Environ()
+	hasUTF8 := false
+	for _, e := range env {
+		if (strings.HasPrefix(e, "LANG=") || strings.HasPrefix(e, "LC_ALL=") || strings.HasPrefix(e, "LC_CTYPE=")) &&
+			strings.Contains(strings.ToUpper(e), "UTF-8") {
+			hasUTF8 = true
+			break
+		}
+	}
+	if !hasUTF8 {
+		loc := "en_US.UTF-8"
+		if runtime.GOOS == "linux" {
+			loc = "C.UTF-8"
+		}
+		env = append(env, "LANG="+loc, "LC_ALL="+loc)
+	}
+	cmd.Env = env
+	return cmd
+}
 
 type Session struct {
 	ID          string `json:"id"`
@@ -30,6 +82,7 @@ type Session struct {
 type proc struct {
 	pid, ppid int
 	tty       string
+	stat      string
 	etime     string
 	args      []string
 }
@@ -58,6 +111,17 @@ func scanSessions(hs *hookState) []Session {
 	}
 
 	panes := listTmuxPanes()
+	if os.Getenv("CSM_DEBUG") != "" {
+		keys := make([]string, 0, len(panes))
+		for k := range panes {
+			keys = append(keys, k)
+		}
+		ttys := []string{}
+		for _, p := range roots {
+			ttys = append(ttys, p.tty)
+		}
+		log.Printf("[scan-debug] bin=%q panes=%v claude_ttys=%v", tmuxPath(), keys, ttys)
+	}
 	sessions := make([]Session, 0, len(roots))
 	for _, p := range roots {
 		cwd := procCwd(p.pid)
@@ -80,6 +144,9 @@ func scanSessions(hs *hookState) []Session {
 			s.ID = "pid:" + strconv.Itoa(p.pid)
 		}
 		s.Status, s.LastEvent, s.LastEventAt = hs.statusFor(cwd)
+		if strings.HasPrefix(p.stat, "T") { // proceso detenido con SIGSTOP
+			s.Status = "paused"
+		}
 		sessions = append(sessions, s)
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].ID < sessions[j].ID })
@@ -87,14 +154,14 @@ func scanSessions(hs *hookState) []Session {
 }
 
 func listProcs() map[int]proc {
-	out, err := exec.Command("ps", "-axo", "pid=,ppid=,tty=,etime=,args=").Output()
+	out, err := exec.Command("ps", "-axo", "pid=,ppid=,tty=,stat=,etime=,args=").Output()
 	if err != nil {
 		return nil
 	}
 	procs := map[int]proc{}
 	for _, line := range strings.Split(string(out), "\n") {
 		f := strings.Fields(line)
-		if len(f) < 5 {
+		if len(f) < 6 {
 			continue
 		}
 		pid, err1 := strconv.Atoi(f[0])
@@ -102,7 +169,7 @@ func listProcs() map[int]proc {
 		if err1 != nil || err2 != nil {
 			continue
 		}
-		procs[pid] = proc{pid: pid, ppid: ppid, tty: f[2], etime: f[3], args: f[4:]}
+		procs[pid] = proc{pid: pid, ppid: ppid, tty: f[2], stat: f[3], etime: f[4], args: f[5:]}
 	}
 	return procs
 }
@@ -191,19 +258,29 @@ func decodeLsofPath(s string) string {
 	return string(b)
 }
 
+var lastTmuxErr string
+
 // listTmuxPanes devuelve pane_tty -> {session, paneID} de todas las sesiones tmux.
+// El nombre de sesión va al final y se parte con SplitN: puede contener "|".
 func listTmuxPanes() map[string]tmuxPane {
-	out, err := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name}\t#{pane_tty}\t#{pane_id}").Output()
+	out, err := tmuxCmd("list-panes", "-a", "-F", "#{pane_tty}|#{pane_id}|#{session_name}").CombinedOutput()
 	if err != nil {
-		return map[string]tmuxPane{} // tmux ausente o sin servidor: no es un error
+		// tmux ausente o sin servidor no es un error, pero deja rastro si cambia
+		msg := err.Error() + ": " + strings.TrimSpace(string(out))
+		if msg != lastTmuxErr {
+			lastTmuxErr = msg
+			log.Printf("[scan] tmux list-panes falló (bin=%s): %s", tmuxPath(), msg)
+		}
+		return map[string]tmuxPane{}
 	}
+	lastTmuxErr = ""
 	panes := map[string]tmuxPane{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		f := strings.Split(line, "\t")
+		f := strings.SplitN(line, "|", 3)
 		if len(f) != 3 {
 			continue
 		}
-		panes[f[1]] = tmuxPane{session: f[0], paneID: f[2]}
+		panes[f[0]] = tmuxPane{session: f[2], paneID: f[1]}
 	}
 	return panes
 }

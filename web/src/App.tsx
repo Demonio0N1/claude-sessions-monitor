@@ -3,6 +3,7 @@ import type { MachineState, SessionInfo } from './types';
 import { wsClient, type ConnStatus } from './ws';
 import MachineGroup from './components/MachineGroup';
 import SessionDetail from './components/SessionDetail';
+import { ToastHost } from './toast';
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(location.hash);
@@ -47,7 +48,13 @@ export default function App() {
 
   const totalSessions = machines.reduce((n, m) => n + m.sessions.length, 0);
 
-  if (detail) return <SessionDetail session={detail.session} machine={detail.machine} />;
+  if (detail)
+    return (
+      <>
+        <SessionDetail session={detail.session} machine={detail.machine} />
+        <ToastHost />
+      </>
+    );
 
   return (
     <div className="mx-auto min-h-full max-w-3xl overflow-x-hidden px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))]">
@@ -86,6 +93,7 @@ export default function App() {
           <MachineGroup key={m.info.id} machine={m} />
         ))}
       </div>
+      <ToastHost />
     </div>
   );
 }

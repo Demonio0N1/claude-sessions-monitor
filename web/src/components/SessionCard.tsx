@@ -19,7 +19,9 @@ export default function SessionCard({ session, offline }: { session: SessionInfo
         {s.kind === 'tmux' ? (
           <span className="text-emerald-400/90">tmux · {s.tmuxSession}</span>
         ) : (
-          <span className="text-zinc-500">visibilidad limitada</span>
+          <span className="text-zinc-500" title="Solo pausar/terminar; sin terminal en vivo">
+            visibilidad limitada
+          </span>
         )}
         {s.lastEvent && s.lastEventAt && (
           <span className="text-zinc-500">
@@ -27,6 +29,13 @@ export default function SessionCard({ session, offline }: { session: SessionInfo
           </span>
         )}
       </div>
+      {s.kind === 'process' && (
+        <p className="mt-2 border-t border-zinc-800 pt-2 text-xs text-zinc-500">
+          Migra a csm: cierra Claude ahí y corre{' '}
+          <code className="text-emerald-400/80">csm</code> en su directorio (retoma la
+          conversación).
+        </p>
+      )}
     </button>
   );
 }
