@@ -33,13 +33,15 @@ func performAction(s Session, action, text string) (bool, string) {
 		if s.paneID == "" {
 			return false, "esta sesión no corre en tmux"
 		}
-		if !validKey(text) {
+		keyArgs, ok := sendKeyArgs(text)
+		if !ok {
 			return false, "tecla no permitida: " + text
 		}
-		if err := tmuxCmd("send-keys", "-t", s.paneID, text).Run(); err != nil {
+		args := append([]string{"send-keys", "-t", s.paneID}, keyArgs...)
+		if err := tmuxCmd(args...).Run(); err != nil {
 			return false, "tmux send-keys: " + err.Error()
 		}
-		return true, "tecla " + text + " enviada"
+		return true, "tecla enviada"
 
 	case "pause":
 		if err := syscall.Kill(s.PID, syscall.SIGSTOP); err != nil {
@@ -77,13 +79,20 @@ func performAction(s Session, action, text string) (bool, string) {
 	return false, "acción desconocida: " + action
 }
 
-// validKey acepta solo teclas de navegación/selección conocidas (síntaxis tmux).
-func validKey(k string) bool {
+// sendKeyArgs traduce una tecla del teclado de la app a argumentos de
+// tmux send-keys. Teclas con nombre van tal cual; un carácter imprimible
+// suelto va con -l (literal) para que tmux no lo interprete.
+func sendKeyArgs(k string) ([]string, bool) {
 	switch k {
-	case "Enter", "Escape", "Tab", "BTab", "Up", "Down", "Left", "Right", "Space":
-		return true
+	case "Enter", "Escape", "Tab", "BTab", "Up", "Down", "Left", "Right",
+		"Space", "BSpace", "C-c", "C-d", "C-u":
+		return []string{k}, true
 	}
-	return len(k) == 1 && k[0] >= '0' && k[0] <= '9'
+	r := []rune(k)
+	if len(r) == 1 && r[0] >= 33 && r[0] <= 126 {
+		return []string{"-l", k}, true
+	}
+	return nil, false
 }
 
 func isStopped(pid int) bool {

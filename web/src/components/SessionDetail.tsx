@@ -100,7 +100,7 @@ export default function SessionDetail({
               <div className="min-h-0 flex-1 p-2">
                 <Terminal globalId={session.globalId} />
               </div>
-              <KeyBar globalId={session.globalId} />
+              <TerminalKeys globalId={session.globalId} />
               <PromptComposer globalId={session.globalId} paused={paused} />
             </>
           ) : (
@@ -172,13 +172,15 @@ export default function SessionDetail({
   );
 }
 
-// ---- barra de teclas rápidas para diálogos interactivos de Claude Code ----
+// ---- teclado de terminal: diálogos, dígitos y símbolos de programación ----
 
-const QUICK_KEYS: { label: string; key: string }[] = [
+type Key = { label: string; key: string; wide?: boolean; accent?: 'green' | 'red' };
+
+const ROW_QUICK: Key[] = [
   { label: '1', key: '1' },
   { label: '2', key: '2' },
   { label: '3', key: '3' },
-  { label: '↵ Enter', key: 'Enter' },
+  { label: '↵', key: 'Enter', accent: 'green' },
   { label: '↑', key: 'Up' },
   { label: '↓', key: 'Down' },
   { label: 'Tab', key: 'Tab' },
@@ -186,31 +188,86 @@ const QUICK_KEYS: { label: string; key: string }[] = [
   { label: 'Esc', key: 'Escape' },
 ];
 
-function KeyBar({ globalId }: { globalId: string }) {
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+const ROWS_FULL: Key[][] = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((c) => ({ label: c, key: c })),
+  ['-', '_', '/', '\\', '|', '~', '`', '.', ',', ';'].map((c) => ({ label: c, key: c })),
+  [':', "'", '"', '(', ')', '[', ']', '{', '}', '='].map((c) => ({ label: c, key: c })),
+  ['!', '?', '@', '#', '$', '%', '^', '&', '*', '+'].map((c) => ({ label: c, key: c })),
+  [
+    { label: '<', key: '<' },
+    { label: '>', key: '>' },
+    { label: '←', key: 'Left' },
+    { label: '→', key: 'Right' },
+    { label: '↑', key: 'Up' },
+    { label: '↓', key: 'Down' },
+    { label: '␣', key: 'Space', wide: true },
+    { label: '⌫', key: 'BSpace' },
+  ],
+  [
+    { label: 'Esc', key: 'Escape' },
+    { label: 'Tab', key: 'Tab' },
+    { label: '⇧Tab', key: 'BTab' },
+    { label: 'Ctrl-C', key: 'C-c', wide: true, accent: 'red' },
+    { label: 'Ctrl-U', key: 'C-u' },
+    { label: '↵ Enter', key: 'Enter', wide: true, accent: 'green' },
+  ],
+];
 
-  async function press(key: string) {
-    if (busyKey) return;
-    setBusyKey(key);
-    const res = await runAction(globalId, 'send_key', key);
-    setBusyKey(null);
-    if (!res.ok) toast(res.message ?? 'No se pudo enviar la tecla', 'error');
+function TerminalKeys({ globalId }: { globalId: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // fuego directo sin bloquear: el orden lo garantiza el propio WebSocket
+  function press(key: string) {
+    runAction(globalId, 'send_key', key).then((res) => {
+      if (!res.ok) toast(res.message ?? 'No se pudo enviar la tecla', 'error');
+    });
   }
 
+  const keyCls = (k: Key) =>
+    `select-none rounded-lg border px-2 py-2 text-center font-mono text-xs active:scale-95 active:bg-zinc-600 ${
+      k.accent === 'green'
+        ? 'border-emerald-600/50 bg-emerald-900/40 text-emerald-200'
+        : k.accent === 'red'
+          ? 'border-red-600/50 bg-red-900/40 text-red-200'
+          : 'border-zinc-700 bg-zinc-900 text-zinc-300'
+    } ${k.wide ? 'col-span-2' : ''}`;
+
   return (
-    <div className="flex gap-1.5 overflow-x-auto border-t border-zinc-800 bg-zinc-950 px-3 py-2">
-      {QUICK_KEYS.map((k) => (
-        <button
-          key={k.key}
-          onClick={() => press(k.key)}
-          disabled={busyKey !== null}
-          className={`shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 font-mono text-xs text-zinc-300 active:scale-95 active:bg-zinc-700 disabled:opacity-60 ${
-            busyKey === k.key ? 'bg-zinc-700' : 'bg-zinc-900'
-          }`}
-        >
-          {k.label}
-        </button>
-      ))}
+    <div className="border-t border-zinc-800 bg-zinc-950 px-3 py-2">
+      {!expanded ? (
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          {ROW_QUICK.map((k) => (
+            <button key={k.key} onClick={() => press(k.key)} className={`shrink-0 ${keyCls(k)} px-3`}>
+              {k.label}
+            </button>
+          ))}
+          <button
+            onClick={() => setExpanded(true)}
+            className="ml-auto shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-xs text-zinc-200 active:scale-95"
+            aria-label="Teclado completo"
+          >
+            ⌨ más
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {ROWS_FULL.map((row, i) => (
+            <div key={i} className="grid grid-cols-10 gap-1.5">
+              {row.map((k) => (
+                <button key={k.key + k.label} onClick={() => press(k.key)} className={keyCls(k)}>
+                  {k.label}
+                </button>
+              ))}
+            </div>
+          ))}
+          <button
+            onClick={() => setExpanded(false)}
+            className="w-full rounded-lg border border-zinc-600 bg-zinc-800 py-1.5 text-xs text-zinc-300 active:scale-95"
+          >
+            ⌃ ocultar teclado
+          </button>
+        </div>
+      )}
     </div>
   );
 }
