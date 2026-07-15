@@ -144,6 +144,9 @@ func scanSessions(hs *hookState) []Session {
 			s.ID = "pid:" + strconv.Itoa(p.pid)
 		}
 		s.Status, s.LastEvent, s.LastEventAt = hs.statusFor(cwd)
+		if s.paneID != "" && dialogPending(s.paneID) {
+			s.Status = "waiting_choice" // hay un diálogo en pantalla esperando elección
+		}
 		if strings.HasPrefix(p.stat, "T") { // proceso detenido con SIGSTOP
 			s.Status = "paused"
 		}
@@ -283,6 +286,29 @@ func listTmuxPanes() map[string]tmuxPane {
 		panes[f[0]] = tmuxPane{session: f[2], paneID: f[1]}
 	}
 	return panes
+}
+
+// dialogPending detecta si el pane muestra un diálogo interactivo de Claude
+// Code (permisos, "Do you want to proceed?", selección numerada) mirando las
+// últimas líneas visibles.
+func dialogPending(paneID string) bool {
+	out, err := tmuxCmd("capture-pane", "-p", "-t", paneID, "-S", "-25").Output()
+	if err != nil {
+		return false
+	}
+	txt := string(out)
+	for _, marker := range []string{
+		"Do you want",       // "Do you want to proceed/create/allow…?"
+		"Esc to cancel",     // pie de los diálogos (no confundir con "esc to interrupt")
+		"❯ 1.",              // selector numerado con cursor
+		"Enter to confirm",  // diálogos de confianza/confirmación
+		"(y/n)",
+	} {
+		if strings.Contains(txt, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // startedFromEtime convierte el formato [[dd-]hh:]mm:ss de ps a epoch ms.

@@ -81,13 +81,13 @@ export default function SessionDetail({
                   : 'border-sky-500/40 bg-sky-500/10 text-sky-300'
               }`}
             >
-              {paused ? '▶ Reanudar' : '⏸ Pausar'}
+              {paused ? 'Reanudar' : 'Pausar'}
             </button>
             <button
               onClick={() => setShowKill(true)}
               className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 active:scale-95"
             >
-              ⏹ Terminar
+              Terminar
             </button>
           </div>
         )}
@@ -200,15 +200,15 @@ const ROWS_FULL: Key[][] = [
     { label: '→', key: 'Right' },
     { label: '↑', key: 'Up' },
     { label: '↓', key: 'Down' },
-    { label: '␣', key: 'Space', wide: true },
-    { label: '⌫', key: 'BSpace' },
+    { label: 'espacio', key: 'Space', wide: true },
+    { label: '⌫ borrar', key: 'BSpace', wide: true },
   ],
   [
     { label: 'Esc', key: 'Escape' },
     { label: 'Tab', key: 'Tab' },
-    { label: '⇧Tab', key: 'BTab' },
-    { label: 'Ctrl-C', key: 'C-c', wide: true, accent: 'red' },
-    { label: 'Ctrl-U', key: 'C-u' },
+    { label: 'shift-Tab', key: 'BTab', wide: true },
+    { label: 'ctrl-C', key: 'C-c', wide: true, accent: 'red' },
+    { label: 'ctrl-U', key: 'C-u', wide: true },
     { label: '↵ Enter', key: 'Enter', wide: true, accent: 'green' },
   ],
 ];
@@ -224,7 +224,7 @@ function TerminalKeys({ globalId }: { globalId: string }) {
   }
 
   const keyCls = (k: Key) =>
-    `select-none rounded-lg border px-2 py-2 text-center font-mono text-xs active:scale-95 active:bg-zinc-600 ${
+    `select-none whitespace-nowrap rounded-lg border px-1 py-2 text-center font-mono text-xs leading-none active:scale-95 active:bg-zinc-600 ${
       k.accent === 'green'
         ? 'border-emerald-600/50 bg-emerald-900/40 text-emerald-200'
         : k.accent === 'red'

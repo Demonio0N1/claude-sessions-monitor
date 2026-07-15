@@ -3,6 +3,7 @@ import type { SessionStatus } from '../types';
 const STYLES: Record<SessionStatus, { label: string; cls: string; dot: string; pulse?: boolean }> = {
   active: { label: 'Activa', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40', dot: 'bg-emerald-400', pulse: true },
   waiting_input: { label: 'Esperando input', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40', dot: 'bg-amber-400', pulse: true },
+  waiting_choice: { label: 'Elige opción ✋', cls: 'bg-orange-500/20 text-orange-300 border-orange-500/50', dot: 'bg-orange-400', pulse: true },
   idle: { label: 'Inactiva', cls: 'bg-zinc-500/15 text-zinc-300 border-zinc-500/40', dot: 'bg-zinc-400' },
   paused: { label: 'Pausada', cls: 'bg-sky-500/15 text-sky-300 border-sky-500/40', dot: 'bg-sky-400' },
   error: { label: 'Error', cls: 'bg-red-500/15 text-red-300 border-red-500/40', dot: 'bg-red-400', pulse: true },

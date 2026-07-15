@@ -1,4 +1,11 @@
-export type SessionStatus = 'active' | 'waiting_input' | 'idle' | 'paused' | 'error' | 'ended';
+export type SessionStatus =
+  | 'active'
+  | 'waiting_input'
+  | 'waiting_choice'
+  | 'idle'
+  | 'paused'
+  | 'error'
+  | 'ended';
 
 export type ActionKind = 'send_prompt' | 'send_key' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
