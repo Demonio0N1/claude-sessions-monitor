@@ -297,8 +297,12 @@ func listTmuxPanes() map[string]tmuxPane {
 }
 
 // paneTailHash guarda el hash del último tail visto por pane para detectar
-// salida cambiando entre escaneos (= sesión trabajando).
-var paneTailHash = map[string]uint64{}
+// salida cambiando entre escaneos (= sesión trabajando); paneLastChange da
+// histéresis para que el estado no parpadee entre herramientas lentas.
+var (
+	paneTailHash   = map[string]uint64{}
+	paneLastChange = map[string]time.Time{}
+)
 
 // paneActivity clasifica lo que muestra el pane: "dialog" (esperando que el
 // usuario elija una opción), "working" (Claude generando/ejecutando) o "".
@@ -326,10 +330,14 @@ func paneActivity(paneID string) string {
 	sum := h.Sum64()
 	prev := paneTailHash[paneID]
 	paneTailHash[paneID] = sum
+	if prev != 0 && prev != sum {
+		paneLastChange[paneID] = time.Now()
+	}
 
-	// "esc to interrupt" aparece en el pie mientras Claude trabaja; la salida
-	// cambiando entre dos escaneos consecutivos significa lo mismo.
-	if strings.Contains(txt, "esc to interrupt") || (prev != 0 && prev != sum) {
+	// "esc to interrupt" aparece en el pie mientras Claude trabaja; salida
+	// cambiada hace <12s significa lo mismo (con margen para no parpadear).
+	if strings.Contains(txt, "esc to interrupt") ||
+		time.Since(paneLastChange[paneID]) < 12*time.Second {
 		return "working"
 	}
 	return ""
