@@ -18,12 +18,18 @@ BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 
 echo "==> Descargando csm-agent ($OS-$ARCH) desde $HUB ..."
-curl -fsSL "$HUB/bin/csm-agent-$OS-$ARCH" -o "$BIN_DIR/csm-agent"
-chmod +x "$BIN_DIR/csm-agent"
+# descarga a un archivo temporal y reemplaza con inode nuevo: sobrescribir en
+# sitio un binario en ejecución corrompe su firma en macOS (Killed: 9)
+curl -fsSL "$HUB/bin/csm-agent-$OS-$ARCH" -o "$BIN_DIR/csm-agent.new"
+chmod +x "$BIN_DIR/csm-agent.new"
+rm -f "$BIN_DIR/csm-agent"
+mv "$BIN_DIR/csm-agent.new" "$BIN_DIR/csm-agent"
 
 echo "==> Descargando lanzador csm ..."
-curl -fsSL "$HUB/bin/csm" -o "$BIN_DIR/csm"
-chmod +x "$BIN_DIR/csm"
+curl -fsSL "$HUB/bin/csm" -o "$BIN_DIR/csm.new"
+chmod +x "$BIN_DIR/csm.new"
+rm -f "$BIN_DIR/csm"
+mv "$BIN_DIR/csm.new" "$BIN_DIR/csm"
 
 CONF_DIR="$HOME/.config/csm"
 mkdir -p "$CONF_DIR"

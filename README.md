@@ -43,6 +43,21 @@ estén en tu Mac o en servidores remotos. PWA mobile-first + hub central + agent
   backoff exponencial (1 s → 30 s). Si una máquina se cae, la UI la muestra atenuada con
   "visto hace X".
 
+## Instalación completa en una máquina nueva (hub + agente)
+
+```bash
+git clone https://github.com/Demonio0N1/claude-sessions-monitor.git
+cd claude-sessions-monitor && ./setup.sh
+```
+
+`setup.sh` instala las dependencias (Node 20+, Go 1.22+, tmux), compila la web y los
+binarios del agente, deja el hub corriendo como servicio (systemd en Linux, launchd en
+macOS) e instala el agente local. Al final imprime la URL del panel y el comando para
+sumar más máquinas (que solo necesitan el one-liner del agente, no el repo).
+
+Nota macOS: launchd no puede arrancar servicios desde Escritorio/Documentos/Descargas
+(TCC); si el repo está ahí, el script arranca el hub con nohup y te lo avisa.
+
 ## Desarrollo local
 
 Requisitos: Node 20+, Go 1.22+, tmux.
