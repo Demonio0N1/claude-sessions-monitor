@@ -279,6 +279,17 @@ function PromptComposer({ globalId, paused }: { globalId: string; paused: boolea
         >
           🕘
         </button>
+        <button
+          onClick={async () => {
+            const res = await runAction(globalId, 'send_key', 'Tab');
+            if (!res.ok) toast(res.message ?? 'No se pudo enviar Tab', 'error');
+          }}
+          className="rounded-xl border border-zinc-700 px-3 py-2.5 font-mono text-sm text-zinc-300 active:scale-95 active:bg-zinc-700"
+          aria-label="Enviar tecla Tab"
+          title="Enviar tecla Tab"
+        >
+          ⇥
+        </button>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
