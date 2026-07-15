@@ -1,6 +1,6 @@
 export type SessionStatus = 'active' | 'waiting_input' | 'idle' | 'paused' | 'error' | 'ended';
 
-export type ActionKind = 'send_prompt' | 'pause' | 'resume' | 'kill' | 'force_kill';
+export type ActionKind = 'send_prompt' | 'send_key' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
 export interface SessionInfo {
   /** Id local a la máquina, ej. "tmux:%3" o "pid:1234" */

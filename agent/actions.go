@@ -29,6 +29,18 @@ func performAction(s Session, action, text string) (bool, string) {
 		}
 		return true, "prompt enviado"
 
+	case "send_key":
+		if s.paneID == "" {
+			return false, "esta sesión no corre en tmux"
+		}
+		if !validKey(text) {
+			return false, "tecla no permitida: " + text
+		}
+		if err := tmuxCmd("send-keys", "-t", s.paneID, text).Run(); err != nil {
+			return false, "tmux send-keys: " + err.Error()
+		}
+		return true, "tecla " + text + " enviada"
+
 	case "pause":
 		if err := syscall.Kill(s.PID, syscall.SIGSTOP); err != nil {
 			return false, fmt.Sprintf("SIGSTOP a %d: %v", s.PID, err)
@@ -63,6 +75,15 @@ func performAction(s Session, action, text string) (bool, string) {
 		return true, "SIGKILL enviado"
 	}
 	return false, "acción desconocida: " + action
+}
+
+// validKey acepta solo teclas de navegación/selección conocidas (síntaxis tmux).
+func validKey(k string) bool {
+	switch k {
+	case "Enter", "Escape", "Tab", "BTab", "Up", "Down", "Left", "Right", "Space":
+		return true
+	}
+	return len(k) == 1 && k[0] >= '0' && k[0] <= '9'
 }
 
 func isStopped(pid int) bool {

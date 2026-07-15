@@ -100,6 +100,7 @@ export default function SessionDetail({
               <div className="min-h-0 flex-1 p-2">
                 <Terminal globalId={session.globalId} />
               </div>
+              <KeyBar globalId={session.globalId} />
               <PromptComposer globalId={session.globalId} paused={paused} />
             </>
           ) : (
@@ -167,6 +168,49 @@ export default function SessionDetail({
       {showKill && (
         <KillDialog session={session} machineName={machine.info.name} onClose={() => setShowKill(false)} />
       )}
+    </div>
+  );
+}
+
+// ---- barra de teclas rápidas para diálogos interactivos de Claude Code ----
+
+const QUICK_KEYS: { label: string; key: string }[] = [
+  { label: '1', key: '1' },
+  { label: '2', key: '2' },
+  { label: '3', key: '3' },
+  { label: '↵ Enter', key: 'Enter' },
+  { label: '↑', key: 'Up' },
+  { label: '↓', key: 'Down' },
+  { label: 'Tab', key: 'Tab' },
+  { label: '⇧Tab', key: 'BTab' },
+  { label: 'Esc', key: 'Escape' },
+];
+
+function KeyBar({ globalId }: { globalId: string }) {
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  async function press(key: string) {
+    if (busyKey) return;
+    setBusyKey(key);
+    const res = await runAction(globalId, 'send_key', key);
+    setBusyKey(null);
+    if (!res.ok) toast(res.message ?? 'No se pudo enviar la tecla', 'error');
+  }
+
+  return (
+    <div className="flex gap-1.5 overflow-x-auto border-t border-zinc-800 bg-zinc-950 px-3 py-2">
+      {QUICK_KEYS.map((k) => (
+        <button
+          key={k.key}
+          onClick={() => press(k.key)}
+          disabled={busyKey !== null}
+          className={`shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 font-mono text-xs text-zinc-300 active:scale-95 active:bg-zinc-700 disabled:opacity-60 ${
+            busyKey === k.key ? 'bg-zinc-700' : 'bg-zinc-900'
+          }`}
+        >
+          {k.label}
+        </button>
+      ))}
     </div>
   );
 }
