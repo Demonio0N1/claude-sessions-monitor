@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"hash/fnv"
 	"log"
 	"os"
 	"os/exec"
@@ -144,8 +145,15 @@ func scanSessions(hs *hookState) []Session {
 			s.ID = "pid:" + strconv.Itoa(p.pid)
 		}
 		s.Status, s.LastEvent, s.LastEventAt = hs.statusFor(cwd)
-		if s.paneID != "" && dialogPending(s.paneID) {
-			s.Status = "waiting_choice" // hay un diálogo en pantalla esperando elección
+		// La pantalla del pane es la fuente más fiable: funciona para cualquier
+		// sesión tmux aunque sus hooks sean viejos o el agente se haya reiniciado.
+		if s.paneID != "" {
+			switch paneActivity(s.paneID) {
+			case "dialog":
+				s.Status = "waiting_choice"
+			case "working":
+				s.Status = "active"
+			}
 		}
 		if strings.HasPrefix(p.stat, "T") { // proceso detenido con SIGSTOP
 			s.Status = "paused"
@@ -288,27 +296,43 @@ func listTmuxPanes() map[string]tmuxPane {
 	return panes
 }
 
-// dialogPending detecta si el pane muestra un diálogo interactivo de Claude
-// Code (permisos, "Do you want to proceed?", selección numerada) mirando las
-// últimas líneas visibles.
-func dialogPending(paneID string) bool {
+// paneTailHash guarda el hash del último tail visto por pane para detectar
+// salida cambiando entre escaneos (= sesión trabajando).
+var paneTailHash = map[string]uint64{}
+
+// paneActivity clasifica lo que muestra el pane: "dialog" (esperando que el
+// usuario elija una opción), "working" (Claude generando/ejecutando) o "".
+func paneActivity(paneID string) string {
 	out, err := tmuxCmd("capture-pane", "-p", "-t", paneID, "-S", "-25").Output()
 	if err != nil {
-		return false
+		return ""
 	}
 	txt := string(out)
+
 	for _, marker := range []string{
-		"Do you want",       // "Do you want to proceed/create/allow…?"
-		"Esc to cancel",     // pie de los diálogos (no confundir con "esc to interrupt")
-		"❯ 1.",              // selector numerado con cursor
-		"Enter to confirm",  // diálogos de confianza/confirmación
+		"Do you want",      // "Do you want to proceed/create/allow…?"
+		"Esc to cancel",    // pie de los diálogos (no confundir con "esc to interrupt")
+		"❯ 1.",             // selector numerado con cursor
+		"Enter to confirm", // diálogos de confianza/confirmación
 		"(y/n)",
 	} {
 		if strings.Contains(txt, marker) {
-			return true
+			return "dialog"
 		}
 	}
-	return false
+
+	h := fnv.New64a()
+	h.Write([]byte(txt))
+	sum := h.Sum64()
+	prev := paneTailHash[paneID]
+	paneTailHash[paneID] = sum
+
+	// "esc to interrupt" aparece en el pie mientras Claude trabaja; la salida
+	// cambiando entre dos escaneos consecutivos significa lo mismo.
+	if strings.Contains(txt, "esc to interrupt") || (prev != 0 && prev != sum) {
+		return "working"
+	}
+	return ""
 }
 
 // startedFromEtime convierte el formato [[dd-]hh:]mm:ss de ps a epoch ms.
