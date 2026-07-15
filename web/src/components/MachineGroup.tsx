@@ -33,7 +33,7 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
           Sin sesiones de Claude. Lanza una con <code className="text-emerald-300">csm</code>.
         </p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {sessions.map((s) => (
             <SessionCard key={s.globalId} session={s} offline={!online} />
           ))}

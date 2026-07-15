@@ -7,7 +7,7 @@ export default function SessionCard({ session, offline }: { session: SessionInfo
   return (
     <button
       onClick={() => (location.hash = `#/s/${encodeURIComponent(s.globalId)}`)}
-      className="block w-full rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 text-left transition active:scale-[0.98] hover:border-zinc-600"
+      className="block w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 text-left transition active:scale-[0.98] hover:border-zinc-600"
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <span className="truncate text-base font-semibold">{s.project || '(sin proyecto)'}</span>
