@@ -6,9 +6,15 @@ export interface ActionResult {
   message?: string;
 }
 
+// crypto.randomUUID() solo existe en contextos seguros (HTTPS/localhost); la app
+// se usa por HTTP dentro de la tailnet, así que generamos ids a mano.
+function newRequestId(): string {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 /** Envía una acción de control y espera la respuesta del agente (vía hub). */
 export function runAction(sessionId: string, action: ActionKind, text?: string): Promise<ActionResult> {
-  const requestId = crypto.randomUUID();
+  const requestId = newRequestId();
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       off();
