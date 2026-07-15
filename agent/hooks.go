@@ -58,8 +58,17 @@ func (hs *hookState) serve(port int) {
 		}
 		now := time.Now().UnixMilli()
 		hs.mu.Lock()
+		prev := hs.byCwd[p.Cwd].event
 		hs.byCwd[p.Cwd] = hookInfo{event: p.HookEventName, ts: now}
 		hs.mu.Unlock()
+
+		// PreToolUse dispara con cada herramienta: actualiza el estado pero solo
+		// registra el evento si cambia respecto al anterior (evita inundar el
+		// historial con cientos de "Usando herramienta" consecutivos).
+		if p.HookEventName == "PreToolUse" && prev == "PreToolUse" {
+			w.Write([]byte("ok"))
+			return
+		}
 
 		detail := p.Message
 		if detail == "" {

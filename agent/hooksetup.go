@@ -37,7 +37,7 @@ func setupHooks(port int) error {
 		"curl -s --max-time 2 -X POST http://%s --data-binary @- >/dev/null 2>&1 || true",
 		marker,
 	)
-	events := []string{"SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd"}
+	events := []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "Notification", "SessionEnd"}
 
 	changed := false
 	for _, ev := range events {
