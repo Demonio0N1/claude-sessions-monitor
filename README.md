@@ -51,12 +51,30 @@ cd claude-sessions-monitor && ./setup.sh
 ```
 
 `setup.sh` instala las dependencias (Node 20+, Go 1.22+, tmux), compila la web y los
-binarios del agente, deja el hub corriendo como servicio (systemd en Linux, launchd en
-macOS) e instala el agente local. Al final imprime la URL del panel y el comando para
-sumar más máquinas (que solo necesitan el one-liner del agente, no el repo).
+binarios del agente, deja el hub corriendo como servicio con **arranque automático al
+encender la máquina** (launchd en macOS, systemd de usuario en Linux) e instala el
+agente local. Al final imprime la URL del panel y el comando para sumar más máquinas
+(que solo necesitan el one-liner del agente, no el repo).
 
-Nota macOS: launchd no puede arrancar servicios desde Escritorio/Documentos/Descargas
-(TCC); si el repo está ahí, el script arranca el hub con nohup y te lo avisa.
+El servicio no corre desde el repo: el runtime se copia a `~/.local/share/csm-hub/app`
+y los datos (token, base de datos, log) viven en `~/.local/share/csm-hub/data`. Por eso
+el repo puede estar donde quieras (incluso en el Escritorio, donde macOS no permite
+servicios launchd) y puedes borrarlo o moverlo sin tumbar el servidor.
+
+## Activar / desactivar el servidor (hub)
+
+```bash
+./scripts/hub-service.sh status     # ¿está corriendo? + URL del panel
+./scripts/hub-service.sh stop      # desactivar: se apaga y deja de arrancar al encender
+./scripts/hub-service.sh start     # activar: arranca ahora y en cada encendido
+./scripts/hub-service.sh restart   # reiniciar
+./scripts/hub-service.sh logs      # ver el log en vivo (Ctrl-C para salir)
+./scripts/hub-service.sh install   # instalar o actualizar el servicio tras un git pull
+./scripts/hub-service.sh uninstall # eliminar el servicio (conserva datos y token)
+```
+
+Los mismos comandos funcionan en macOS y Linux. Para usar otro puerto:
+`CSM_PORT=4001 ./scripts/hub-service.sh install`.
 
 ## Desarrollo local
 
@@ -77,6 +95,10 @@ Abre http://localhost:5173 — verás la máquina `servidor-fake` con 3 sesiones
 ellas rotando de estado cada 5 s y con salida de terminal simulada.
 
 ## Producción (uso real)
+
+La forma recomendada es `./setup.sh` (o `./scripts/hub-service.sh install` si ya
+compilaste): deja el hub como servicio con arranque automático. Para correrlo a mano
+en primer plano (pruebas, depuración):
 
 ```bash
 make build          # compila la web y los binarios del agente (4 plataformas)

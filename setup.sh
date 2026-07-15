@@ -99,91 +99,21 @@ cp "$REPO_DIR/agent/csm" "$REPO_DIR/hub/public/bin/csm"
 chmod +x "$REPO_DIR/hub/public/bin/csm"
 
 # ---------- 3. hub como servicio ----------
-log "Instalando el hub como servicio (puerto $HUB_PORT)"
-NODE_BIN=$(command -v node)
-TSX_CLI="$REPO_DIR/hub/node_modules/tsx/dist/cli.mjs"
-[ -f "$TSX_CLI" ] || die "no encuentro tsx en $TSX_CLI"
-SVC_PATH="$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin"
-
-if [ "$OS" = "Darwin" ]; then
-  case "$REPO_DIR" in
-    "$HOME/Desktop"* | "$HOME/Documents"* | "$HOME/Downloads"*)
-      # TCC de macOS bloquea a launchd en estas carpetas: arranque alternativo.
-      warn "macOS no permite servicios launchd en Escritorio/Documentos/Descargas"
-      warn "arranco el hub con nohup (no sobrevive reinicios); para el servicio completo clona el repo en \$HOME"
-      mkdir -p "$REPO_DIR/hub/data"
-      lsof -ti ":$HUB_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
-      sleep 1
-      (cd "$REPO_DIR/hub" && nohup "$NODE_BIN" "$TSX_CLI" src/index.ts >> data/hub.log 2>&1 &)
-      DARWIN_NOHUP=1
-      ;;
-  esac
-fi
-
-if [ "$OS" = "Darwin" ] && [ -z "${DARWIN_NOHUP:-}" ]; then
-  PLIST="$HOME/Library/LaunchAgents/com.csm.hub.plist"
-  mkdir -p "$HOME/Library/LaunchAgents" "$REPO_DIR/hub/data"
-  cat > "$PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.csm.hub</string>
-  <key>ProgramArguments</key>
-  <array><string>$NODE_BIN</string><string>$TSX_CLI</string><string>src/index.ts</string></array>
-  <key>WorkingDirectory</key><string>$REPO_DIR/hub</string>
-  <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>$SVC_PATH</string><key>CSM_PORT</key><string>$HUB_PORT</string></dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>$REPO_DIR/hub/data/hub.log</string>
-  <key>StandardErrorPath</key><string>$REPO_DIR/hub/data/hub.log</string>
-</dict>
-</plist>
-EOF
-  launchctl unload "$PLIST" 2>/dev/null || true
-  launchctl load -w "$PLIST"
-elif [ "$OS" = "Linux" ]; then
-  UNIT_DIR="$HOME/.config/systemd/user"
-  mkdir -p "$UNIT_DIR"
-  cat > "$UNIT_DIR/csm-hub.service" <<EOF
-[Unit]
-Description=Claude Sessions Monitor hub
-
-[Service]
-Environment=PATH=$SVC_PATH
-Environment=CSM_PORT=$HUB_PORT
-WorkingDirectory=$REPO_DIR/hub
-ExecStart="$NODE_BIN" "$TSX_CLI" src/index.ts
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=default.target
-EOF
-  systemctl --user daemon-reload
-  systemctl --user enable --now csm-hub
-  systemctl --user restart csm-hub
-  $SUDO loginctl enable-linger "$USER" 2>/dev/null || warn "corre 'sudo loginctl enable-linger $USER' para que sobreviva al logout"
-fi
-
-log "Esperando a que el hub responda"
-i=0
-until curl -fsS "http://127.0.0.1:$HUB_PORT/api/state" >/dev/null 2>&1; do
-  i=$((i + 1)); [ $i -gt 30 ] && die "el hub no arrancó; revisa $REPO_DIR/hub/data/hub.log"
-  sleep 1
-done
+# hub-service.sh copia el runtime a ~/.local/share/csm-hub e instala el servicio
+# (launchd en macOS, systemd de usuario en Linux) con arranque automático al encender.
+CSM_PORT="$HUB_PORT" "$REPO_DIR/scripts/hub-service.sh" install
 
 # ---------- 4. agente local ----------
 log "Instalando el agente en esta máquina"
 curl -fsSL "http://127.0.0.1:$HUB_PORT/install.sh" | sh
 
 # ---------- 5. resumen ----------
-TOKEN=$(cat "$REPO_DIR/hub/data/token.txt" 2>/dev/null || echo "?")
+TOKEN=$(cat "$HOME/.local/share/csm-hub/data/token.txt" 2>/dev/null || echo "?")
 TS_IP=$(command -v tailscale >/dev/null 2>&1 && tailscale ip -4 2>/dev/null | head -1 || true)
 log "Listo ✅"
 echo "  Panel:          http://${TS_IP:-<ip-de-esta-máquina>}:$HUB_PORT  (ábrelo desde el celular vía Tailscale)"
 echo "  Token agentes:  $TOKEN"
 echo "  Otras máquinas: curl -fsSL http://${TS_IP:-<ip>}:$HUB_PORT/install.sh | sh"
 echo "  Sesiones:       cd <proyecto> && csm   (agrega ~/.local/bin a tu PATH si hace falta)"
+echo "  Servidor:       ./scripts/hub-service.sh status|start|stop|logs"
 [ -z "$TS_IP" ] && warn "tailscale no detectado: instala https://tailscale.com para acceder desde el celular"
