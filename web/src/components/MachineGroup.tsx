@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import type { MachineState } from '../types';
 import { timeAgo } from '../format';
 import SessionCard from './SessionCard';
+import NewSessionModal from './NewSessionModal';
 
 export default function MachineGroup({ machine }: { machine: MachineState }) {
   const { info, online, lastSeen, sessions } = machine;
+  const [showNew, setShowNew] = useState(false);
   return (
     <section className={online ? '' : 'opacity-55'}>
       <div className="mb-2 flex items-center gap-2">
@@ -12,7 +15,14 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
         <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
           {info.os}/{info.arch}
         </span>
-        {!online && (
+        {online ? (
+          <button
+            onClick={() => setShowNew(true)}
+            className="ml-auto rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-2 py-0.5 text-xs text-emerald-300 active:scale-95"
+          >
+            + nueva sesión
+          </button>
+        ) : (
           <>
             <span className="text-xs text-zinc-500">visto {timeAgo(lastSeen)}</span>
             <button
@@ -30,7 +40,14 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
       </div>
       {sessions.length === 0 ? (
         <p className="rounded-xl border border-zinc-800 px-4 py-3 text-sm text-zinc-500">
-          Sin sesiones de Claude. Lanza una con <code className="text-emerald-300">csm</code>.
+          Sin sesiones de Claude. Lanza una con <code className="text-emerald-300">csm</code>
+          {online && (
+            <>
+              {' '}
+              o con el botón <span className="text-emerald-300">+ nueva sesión</span>
+            </>
+          )}
+          .
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -39,6 +56,7 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
           ))}
         </div>
       )}
+      {showNew && <NewSessionModal machine={machine} onClose={() => setShowNew(false)} />}
     </section>
   );
 }

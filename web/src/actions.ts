@@ -1,9 +1,10 @@
-import type { ActionKind } from './types';
+import type { ActionKind, MachineActionKind } from './types';
 import { wsClient } from './ws';
 
 export interface ActionResult {
   ok: boolean;
   message?: string;
+  data?: unknown;
 }
 
 // crypto.randomUUID() solo existe en contextos seguros (HTTPS/localhost); la app
@@ -28,6 +29,29 @@ export function runAction(sessionId: string, action: ActionKind, text?: string):
       }
     });
     wsClient.send({ type: 'action', requestId, sessionId, action, text });
+  });
+}
+
+/** Acción dirigida a una máquina (listar carpetas, crear sesión) y su respuesta. */
+export function runMachineAction(
+  machineId: string,
+  action: MachineActionKind,
+  opts: { path?: string; fresh?: boolean } = {},
+): Promise<ActionResult> {
+  const requestId = newRequestId();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      off();
+      resolve({ ok: false, message: 'sin respuesta del hub (timeout)' });
+    }, 17_000);
+    const off = wsClient.onMessage((msg) => {
+      if (msg.type === 'action_result' && msg.requestId === requestId) {
+        clearTimeout(timer);
+        off();
+        resolve({ ok: msg.ok, message: msg.message, data: msg.data });
+      }
+    });
+    wsClient.send({ type: 'machine_action', requestId, machineId, action, ...opts });
   });
 }
 

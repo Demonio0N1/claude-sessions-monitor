@@ -139,6 +139,11 @@ pueden pausar (la app lo avisa); basta terminarlas y relanzarlas con `csm`.
 
 ### Control remoto desde la app (fase 2)
 
+- **+ Nueva sesión** (cabecera de cada máquina online): abre un navegador de
+  carpetas de esa máquina, eliges dónde y se lanza una sesión csm ahí (tmux +
+  Claude, con `--continue` si esa carpeta ya tenía conversación; la casilla
+  "empezar de cero" lo evita). La sesión aparece en el panel en segundos.
+
 En el detalle de una sesión:
 
 - **Enviar prompts** (solo sesiones tmux): campo de texto al pie de la terminal, con

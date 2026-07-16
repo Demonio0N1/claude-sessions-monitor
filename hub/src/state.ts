@@ -1,5 +1,13 @@
 import type { WebSocket } from 'ws';
-import type { ActionKind, HubToAgent, HubToApp, MachineInfo, MachineState, SessionInfo } from './types.js';
+import type {
+  ActionKind,
+  HubToAgent,
+  HubToApp,
+  MachineActionKind,
+  MachineInfo,
+  MachineState,
+  SessionInfo,
+} from './types.js';
 import * as db from './db.js';
 
 interface Machine {
@@ -179,12 +187,34 @@ export function dispatchAction(
   send(machine.ws, { type: 'action', requestId, sessionId: sid, action, text });
 }
 
-export function resolveAction(requestId: string, ok: boolean, message?: string): void {
+/** Acción dirigida a la máquina (no a una sesión): listar carpetas, crear sesión. */
+export function dispatchMachineAction(
+  appWs: WebSocket,
+  requestId: string,
+  machineId: string,
+  action: MachineActionKind,
+  path?: string,
+  fresh?: boolean,
+): void {
+  const machine = machines.get(machineId);
+  if (!machine || !machine.online || !machine.ws) {
+    send(appWs, { type: 'action_result', requestId, ok: false, message: 'la máquina está offline' });
+    return;
+  }
+  const timer = setTimeout(() => {
+    pendingActions.delete(requestId);
+    send(appWs, { type: 'action_result', requestId, ok: false, message: 'el agente no respondió (timeout)' });
+  }, 15_000);
+  pendingActions.set(requestId, { ws: appWs, timer });
+  send(machine.ws, { type: 'machine_action', requestId, action, path, fresh });
+}
+
+export function resolveAction(requestId: string, ok: boolean, message?: string, data?: unknown): void {
   const pending = pendingActions.get(requestId);
   if (!pending) return;
   pendingActions.delete(requestId);
   clearTimeout(pending.timer);
-  send(pending.ws, { type: 'action_result', requestId, ok, message });
+  send(pending.ws, { type: 'action_result', requestId, ok, message, data });
 }
 
 // ---- snapshot y difusión ----

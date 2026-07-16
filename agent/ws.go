@@ -177,6 +177,25 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 				if !doScan() {
 					return authenticated
 				}
+			case "machine_action":
+				requestId, _ := msg["requestId"].(string)
+				action, _ := msg["action"].(string)
+				path, _ := msg["path"].(string)
+				fresh, _ := msg["fresh"].(bool)
+				ok, result, data := performMachineAction(action, path, fresh)
+				if action != "list_dir" {
+					log.Printf("[machine_action] %s en %q: ok=%v %s", action, path, ok, result)
+				}
+				if !send(map[string]any{"type": "action_result", "requestId": requestId, "ok": ok, "message": result, "data": data}) {
+					return authenticated
+				}
+				if ok && action == "new_session" {
+					// deja que el proceso claude aparezca en ps y refleja la sesión nueva
+					time.Sleep(700 * time.Millisecond)
+					if !doScan() {
+						return authenticated
+					}
+				}
 			}
 
 		case <-scanTick.C:

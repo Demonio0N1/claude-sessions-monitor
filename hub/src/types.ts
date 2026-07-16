@@ -9,6 +9,22 @@ export type SessionStatus =
 
 export type ActionKind = 'send_prompt' | 'send_key' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
+/** Acciones dirigidas a la máquina (no a una sesión): navegar carpetas y crear sesiones. */
+export type MachineActionKind = 'list_dir' | 'new_session';
+
+export interface DirEntry {
+  name: string;
+  path: string;
+}
+
+/** Respuesta de list_dir. */
+export interface DirListing {
+  path: string;
+  parent?: string;
+  home: string;
+  entries: DirEntry[];
+}
+
 export interface SessionInfo {
   /** Id local a la máquina, ej. "tmux:%3" o "pid:1234" */
   id: string;
@@ -50,7 +66,7 @@ export type AgentMsg =
   | { type: 'sessions'; sessions: SessionInfo[] }
   | { type: 'output'; sessionId: string; data: string; full: boolean }
   | { type: 'event'; sessionId?: string; cwd?: string; event: HookEvent }
-  | { type: 'action_result'; requestId: string; ok: boolean; message?: string }
+  | { type: 'action_result'; requestId: string; ok: boolean; message?: string; data?: unknown }
   | { type: 'pong' };
 
 // hub -> agente
@@ -60,16 +76,25 @@ export type HubToAgent =
   | { type: 'subscribe'; sessionId: string }
   | { type: 'unsubscribe'; sessionId: string }
   | { type: 'action'; requestId: string; sessionId: string; action: ActionKind; text?: string }
+  | { type: 'machine_action'; requestId: string; action: MachineActionKind; path?: string; fresh?: boolean }
   | { type: 'ping' };
 
 // hub -> app
 export type HubToApp =
   | { type: 'state'; machines: MachineState[] }
   | { type: 'output'; sessionId: string; data: string; full: boolean }
-  | { type: 'action_result'; requestId: string; ok: boolean; message?: string };
+  | { type: 'action_result'; requestId: string; ok: boolean; message?: string; data?: unknown };
 
 // app -> hub
 export type AppMsg =
   | { type: 'subscribe'; sessionId: string }
   | { type: 'unsubscribe'; sessionId: string }
-  | { type: 'action'; requestId: string; sessionId: string; action: ActionKind; text?: string };
+  | { type: 'action'; requestId: string; sessionId: string; action: ActionKind; text?: string }
+  | {
+      type: 'machine_action';
+      requestId: string;
+      machineId: string;
+      action: MachineActionKind;
+      path?: string;
+      fresh?: boolean;
+    };

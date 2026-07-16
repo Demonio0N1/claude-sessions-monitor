@@ -49,7 +49,7 @@ app.get('/ws/agent', { websocket: true }, (socket: WebSocket) => {
         state.onEvent(machineId, msg.sessionId, msg.cwd, msg.event);
         break;
       case 'action_result':
-        state.resolveAction(msg.requestId, msg.ok, msg.message);
+        state.resolveAction(msg.requestId, msg.ok, msg.message, msg.data);
         break;
       case 'pong':
         break;
@@ -85,6 +85,8 @@ app.get('/ws/app', { websocket: true }, (socket: WebSocket) => {
     else if (msg.type === 'unsubscribe') state.appUnsubscribe(socket, msg.sessionId);
     else if (msg.type === 'action' && msg.requestId && msg.sessionId)
       state.dispatchAction(socket, msg.requestId, msg.sessionId, msg.action, msg.text);
+    else if (msg.type === 'machine_action' && msg.requestId && msg.machineId)
+      state.dispatchMachineAction(socket, msg.requestId, msg.machineId, msg.action, msg.path, msg.fresh);
   });
   socket.on('close', () => state.appDisconnected(socket));
   socket.on('error', () => socket.terminate());

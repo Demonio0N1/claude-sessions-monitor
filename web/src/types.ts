@@ -9,6 +9,22 @@ export type SessionStatus =
 
 export type ActionKind = 'send_prompt' | 'send_key' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
+/** Acciones dirigidas a la máquina (no a una sesión): navegar carpetas y crear sesiones. */
+export type MachineActionKind = 'list_dir' | 'new_session';
+
+export interface DirEntry {
+  name: string;
+  path: string;
+}
+
+/** Respuesta de list_dir. */
+export interface DirListing {
+  path: string;
+  parent?: string;
+  home: string;
+  entries: DirEntry[];
+}
+
 export interface SessionInfo {
   id: string;
   globalId: string;
@@ -41,7 +57,7 @@ export interface MachineState {
 export type HubToApp =
   | { type: 'state'; machines: MachineState[] }
   | { type: 'output'; sessionId: string; data: string; full: boolean }
-  | { type: 'action_result'; requestId: string; ok: boolean; message?: string };
+  | { type: 'action_result'; requestId: string; ok: boolean; message?: string; data?: unknown };
 
 export interface EventRow {
   kind: string;
