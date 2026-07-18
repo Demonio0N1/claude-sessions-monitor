@@ -119,24 +119,35 @@ registra los hooks (con backup `settings.json.csm-backup` la primera vez) e inst
 servicio (launchd en macOS, systemd de usuario en Linux). En servidores Linux, para que
 el agente sobreviva al logout: `sudo loginctl enable-linger $USER`.
 
-### Varias máquinas en un solo panel
+### Varias máquinas en un solo panel (y paneles redundantes)
 
-El diseño es **un hub central + un agente por máquina**: todas las máquinas aparecen
-juntas en la misma página. No corras un hub en cada PC — elige la máquina más estable
-como hub y en las demás instala **solo el agente** con el comando `curl ... | sh` de
-arriba (usando la IP del hub central).
+Cada agente puede reportar a **varios hubs a la vez**: cada `install.sh` que corras
+**agrega** ese hub a la config del agente (`~/.config/csm/agent.json`, lista `hubs`),
+sin quitar los anteriores. Todas las máquinas conectadas a un hub aparecen juntas en
+su página.
 
-Si una máquina ya corría su propio hub y quieres unificarla:
+**Modo simple (un panel):** elige la máquina más estable como hub y en todas las
+máquinas (incluida ella) corre su instalador:
 
 ```bash
-# en esa máquina:
-curl -fsSL http://<ip-del-hub-central>:4000/install.sh | sh  # repunta el agente al hub central
-./scripts/hub-service.sh uninstall                           # apaga su hub local (opcional)
+curl -fsSL http://<ip-del-hub>:4000/install.sh | sh
 ```
 
-El instalador detecta que el agente apuntaba a otro hub y reescribe la config hacia el
-central (conservando el nombre de la máquina). En segundos la verás aparecer en el
-panel central junto a las demás.
+**Modo redundante (el panel funciona aunque se caiga una máquina):** deja el hub
+corriendo en cada máquina y, **en cada máquina, corre el install.sh de cada hub**
+que quieras usar como panel. Ejemplo con dos máquinas A y B:
+
+```bash
+# en A y también en B:
+curl -fsSL http://<ip-de-A>:4000/install.sh | sh
+curl -fsSL http://<ip-de-B>:4000/install.sh | sh
+```
+
+Resultado: los agentes de A y B reportan a ambos hubs, así que la página de A y la
+de B muestran lo mismo. Si A está apagada, abres la de B y sigues viendo y
+controlando todo lo que esté encendido.
+
+Para dejar de reportar a un hub: `csm-agent remove-hub http://<ip>:4000`.
 
 ### Lanzar sesiones monitorizadas: `csm`
 

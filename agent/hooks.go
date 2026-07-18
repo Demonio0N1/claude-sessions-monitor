@@ -26,10 +26,44 @@ type hookState struct {
 	mu     sync.Mutex
 	byCwd  map[string]hookInfo
 	Events chan hookEventMsg
+	subs   map[chan hookEventMsg]bool
 }
 
 func newHookState() *hookState {
-	return &hookState{byCwd: map[string]hookInfo{}, Events: make(chan hookEventMsg, 128)}
+	return &hookState{
+		byCwd:  map[string]hookInfo{},
+		Events: make(chan hookEventMsg, 128),
+		subs:   map[chan hookEventMsg]bool{},
+	}
+}
+
+// broadcastEvents reparte cada evento de hook a todas las conexiones de hub
+// suscritas (el agente puede reportar a varios hubs a la vez).
+func (hs *hookState) broadcastEvents() {
+	for ev := range hs.Events {
+		hs.mu.Lock()
+		for ch := range hs.subs {
+			select {
+			case ch <- ev:
+			default: // suscriptor saturado: descarta antes que bloquear al resto
+			}
+		}
+		hs.mu.Unlock()
+	}
+}
+
+func (hs *hookState) subscribe() chan hookEventMsg {
+	ch := make(chan hookEventMsg, 32)
+	hs.mu.Lock()
+	hs.subs[ch] = true
+	hs.mu.Unlock()
+	return ch
+}
+
+func (hs *hookState) unsubscribe(ch chan hookEventMsg) {
+	hs.mu.Lock()
+	delete(hs.subs, ch)
+	hs.mu.Unlock()
 }
 
 // payload que Claude Code envía a los hooks por stdin (campos que nos interesan)

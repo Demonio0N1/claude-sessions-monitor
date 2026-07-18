@@ -13,6 +13,8 @@ const usage = `csm-agent — agente de Claude Sessions Monitor
 
 Uso:
   csm-agent run                  corre el agente (foreground)
+  csm-agent add-hub <url> <tok>  agrega un hub (el agente reporta a todos a la vez)
+  csm-agent remove-hub <url>     deja de reportar a un hub
   csm-agent setup-hooks          registra hooks pasivos en ~/.claude/settings.json
   csm-agent service install      instala el servicio (launchd/systemd) y lo arranca
   csm-agent service uninstall    elimina el servicio
@@ -35,6 +37,14 @@ func main() {
 			port = cfg.HookPort
 		}
 		if err := setupHooks(port); err != nil {
+			log.Fatal(err)
+		}
+	case "add-hub":
+		if err := addHubCmd(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+	case "remove-hub":
+		if err := removeHubCmd(os.Args[2:]); err != nil {
 			log.Fatal(err)
 		}
 	case "service":

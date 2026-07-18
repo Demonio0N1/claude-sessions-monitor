@@ -31,34 +31,10 @@ chmod +x "$BIN_DIR/csm.new"
 rm -f "$BIN_DIR/csm"
 mv "$BIN_DIR/csm.new" "$BIN_DIR/csm"
 
-CONF_DIR="$HOME/.config/csm"
-mkdir -p "$CONF_DIR"
-# Si ya hay config apuntando a este mismo hub, se respeta. Si apunta a OTRO hub
-# (p. ej. esta máquina corría su propio hub y ahora quieres un panel central),
-# se reescribe hacia este hub conservando el nombre de la máquina.
-NAME="$(hostname -s)"
-if [ -f "$CONF_DIR/agent.json" ]; then
-  if grep -q "\\"hubUrl\\": \\"$HUB\\"" "$CONF_DIR/agent.json" \\
-    && grep -q "\\"token\\": \\"$TOKEN\\"" "$CONF_DIR/agent.json"; then
-    echo "==> Config existente en $CONF_DIR/agent.json (ya apunta a este hub)"
-    NAME=""
-  else
-    PREV=$(sed -n 's/.*"machineName": *"\\([^"]*\\)".*/\\1/p' "$CONF_DIR/agent.json")
-    [ -n "$PREV" ] && NAME="$PREV"
-    echo "==> El agente apuntaba a otro hub; ahora apuntará a $HUB"
-  fi
-fi
-if [ -n "$NAME" ]; then
-  cat > "$CONF_DIR/agent.json" <<EOF
-{
-  "hubUrl": "$HUB",
-  "token": "$TOKEN",
-  "machineName": "$NAME"
-}
-EOF
-  chmod 600 "$CONF_DIR/agent.json"
-  echo "==> Config escrita en $CONF_DIR/agent.json"
-fi
+# Agrega este hub a la config del agente (acumulativo: el agente reporta a
+# todos los hubs agregados a la vez, así cada máquina puede tener su panel).
+echo "==> Registrando este hub en la config del agente ..."
+"$BIN_DIR/csm-agent" add-hub "$HUB" "$TOKEN"
 
 echo "==> Registrando hooks pasivos de Claude Code ..."
 "$BIN_DIR/csm-agent" setup-hooks

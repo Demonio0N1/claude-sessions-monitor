@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -27,30 +28,48 @@ func runAgent() {
 	}
 	hs := newHookState()
 	go hs.serve(cfg.HookPort)
+	go hs.broadcastEvents()
 
 	machine := machineInfo{
 		ID: cfg.MachineID, Name: cfg.MachineName,
 		OS: runtime.GOOS, Arch: runtime.GOARCH, Version: version,
 	}
-	wsURL, err := hubWsURL(cfg.HubURL)
-	if err != nil {
-		log.Fatalf("hubUrl inválida %q: %v", cfg.HubURL, err)
-	}
 
-	backoff := time.Second
-	for {
-		ok := connectOnce(wsURL, cfg.Token, machine, hs)
-		if ok {
-			backoff = time.Second // la conexión llegó a autenticarse: reinicia el backoff
-		} else {
-			backoff *= 2
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
+	// Una conexión persistente por cada hub configurado: todos los paneles ven
+	// esta máquina, y si un hub se cae los demás siguen funcionando.
+	hubs := cfg.hubEntries()
+	started := 0
+	var wg sync.WaitGroup
+	for _, h := range hubs {
+		wsURL, err := hubWsURL(h.URL)
+		if err != nil {
+			log.Printf("hubUrl inválida %q: %v (se ignora)", h.URL, err)
+			continue
 		}
-		log.Printf("[ws] reconectando en %s", backoff)
-		time.Sleep(backoff)
+		started++
+		wg.Add(1)
+		go func(wsURL, token string) {
+			defer wg.Done()
+			backoff := time.Second
+			for {
+				ok := connectOnce(wsURL, token, machine, hs)
+				if ok {
+					backoff = time.Second // la conexión llegó a autenticarse: reinicia el backoff
+				} else {
+					backoff *= 2
+					if backoff > 30*time.Second {
+						backoff = 30 * time.Second
+					}
+				}
+				log.Printf("[ws] %s: reconectando en %s", wsURL, backoff)
+				time.Sleep(backoff)
+			}
+		}(wsURL, h.Token)
 	}
+	if started == 0 {
+		log.Fatal("no hay hubs configurados: corre el install.sh de un hub o 'csm-agent add-hub <url> <token>'")
+	}
+	wg.Wait()
 }
 
 func hubWsURL(hubURL string) (string, error) {
@@ -78,6 +97,9 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 	}
 	defer conn.Close()
 
+	events := hs.subscribe()
+	defer hs.unsubscribe(events)
+
 	send := func(v any) bool {
 		data, _ := json.Marshal(v)
 		return conn.WriteMessage(websocket.TextMessage, data) == nil
@@ -102,8 +124,8 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 	}()
 
 	authenticated := false
-	subs := map[string]bool{}          // sessionId suscritos por el hub
-	sessById := map[string]Session{}   // último scan, para captura y acciones
+	subs := map[string]bool{}        // sessionId suscritos por el hub
+	sessById := map[string]Session{} // último scan, para captura y acciones
 	lastOutHash := map[string]uint64{}
 	var lastSessionsJSON string
 	lastSessionsSent := time.Time{}
@@ -135,13 +157,13 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 		select {
 		case msg, open := <-inbound:
 			if !open {
-				log.Printf("[ws] conexión cerrada por el hub")
+				log.Printf("[ws] %s: conexión cerrada por el hub", wsURL)
 				return authenticated
 			}
 			switch msg["type"] {
 			case "hello_ok":
 				authenticated = true
-				log.Printf("[ws] conectado al hub como %q", machine.Name)
+				log.Printf("[ws] conectado a %s como %q", wsURL, machine.Name)
 			case "error":
 				log.Printf("[ws] error del hub: %v", msg["message"])
 				return false
@@ -223,7 +245,7 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 				}
 			}
 
-		case ev := <-hs.Events:
+		case ev := <-events:
 			sessionID := ""
 			for id, s := range sessionIDsByCwd(hs, ev.Cwd) {
 				_ = s
