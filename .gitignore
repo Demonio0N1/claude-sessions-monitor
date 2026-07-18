@@ -6,3 +6,4 @@ hub/public/bin/*
 web/public/icons/*.png
 *.log
 .DS_Store
+agent/agent
