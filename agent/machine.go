@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -26,8 +28,68 @@ func performMachineAction(action, path string, fresh bool) (bool, string, any) {
 			return false, err.Error(), nil
 		}
 		return true, fmt.Sprintf("sesión '%s' creada en %s", name, path), map[string]any{"session": name}
+	case "screenshot":
+		img, err := takeScreenshot()
+		if err != nil {
+			return false, err.Error(), nil
+		}
+		return true, "", map[string]any{"image": img}
 	}
 	return false, "acción desconocida: " + action, nil
+}
+
+// takeScreenshot captura la pantalla principal de la máquina y la devuelve
+// como data URI, reescalada para el teléfono. En macOS la primera vez hay que
+// autorizar "Grabación de pantalla" a csm-agent en Ajustes del Sistema.
+func takeScreenshot() (string, error) {
+	tmp, err := os.CreateTemp("", "csm-shot-*")
+	if err != nil {
+		return "", err
+	}
+	path := tmp.Name()
+	tmp.Close()
+	defer os.Remove(path)
+
+	mime := "image/jpeg"
+	switch runtime.GOOS {
+	case "darwin":
+		if out, err := exec.Command("/usr/sbin/screencapture", "-x", "-t", "jpg", path).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("screencapture: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+		// reescala a 1600px de ancho para que viaje ligera (mejor esfuerzo)
+		_ = exec.Command("/usr/bin/sips", "--resampleWidth", "1600", path).Run()
+	case "linux":
+		if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+			return "", fmt.Errorf("esta máquina no tiene entorno gráfico (servidor sin pantalla)")
+		}
+		mime = "image/png"
+		captured := false
+		for _, c := range [][]string{
+			{"grim", path},                      // wayland
+			{"gnome-screenshot", "-f", path},    // gnome
+			{"scrot", "-o", path},               // x11
+			{"import", "-window", "root", path}, // imagemagick
+		} {
+			if _, err := exec.LookPath(c[0]); err != nil {
+				continue
+			}
+			if exec.Command(c[0], c[1:]...).Run() == nil {
+				captured = true
+				break
+			}
+		}
+		if !captured {
+			return "", fmt.Errorf("no encontré una herramienta de captura (instala scrot o gnome-screenshot)")
+		}
+	default:
+		return "", fmt.Errorf("captura no soportada en %s", runtime.GOOS)
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return "", fmt.Errorf("la captura salió vacía")
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(b), nil
 }
 
 type dirEntry struct {

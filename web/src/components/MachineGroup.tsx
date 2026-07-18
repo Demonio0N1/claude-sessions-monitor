@@ -3,10 +3,12 @@ import type { MachineState } from '../types';
 import { timeAgo } from '../format';
 import SessionCard from './SessionCard';
 import NewSessionModal from './NewSessionModal';
+import ScreenshotModal from './ScreenshotModal';
 
 export default function MachineGroup({ machine }: { machine: MachineState }) {
   const { info, online, lastSeen, sessions } = machine;
   const [showNew, setShowNew] = useState(false);
+  const [showShot, setShowShot] = useState(false);
   return (
     <section className={online ? '' : 'opacity-55'}>
       <div className="mb-2 flex items-center gap-2">
@@ -16,12 +18,21 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
           {info.os}/{info.arch}
         </span>
         {online ? (
-          <button
-            onClick={() => setShowNew(true)}
-            className="ml-auto rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-2 py-0.5 text-xs text-emerald-300 active:scale-95"
-          >
-            + nueva sesión
-          </button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button
+              onClick={() => setShowShot(true)}
+              className="rounded-lg border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 active:scale-95"
+              title="captura de pantalla de esta máquina"
+            >
+              📸
+            </button>
+            <button
+              onClick={() => setShowNew(true)}
+              className="rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-2 py-0.5 text-xs text-emerald-300 active:scale-95"
+            >
+              + nueva sesión
+            </button>
+          </div>
         ) : (
           <>
             <span className="text-xs text-zinc-500">visto {timeAgo(lastSeen)}</span>
@@ -57,6 +68,7 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
         </div>
       )}
       {showNew && <NewSessionModal machine={machine} onClose={() => setShowNew(false)} />}
+      {showShot && <ScreenshotModal machine={machine} onClose={() => setShowShot(false)} />}
     </section>
   );
 }
