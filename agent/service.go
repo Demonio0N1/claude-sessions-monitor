@@ -116,7 +116,10 @@ WantedBy=default.target
 	}
 	cmds := [][]string{
 		{"systemctl", "--user", "daemon-reload"},
-		{"systemctl", "--user", "enable", "--now", "csm-agent"},
+		{"systemctl", "--user", "enable", "csm-agent"},
+		// restart (no --now): si ya corría, debe reiniciarse para tomar
+		// el binario y la config nuevos
+		{"systemctl", "--user", "restart", "csm-agent"},
 	}
 	for _, c := range cmds {
 		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {

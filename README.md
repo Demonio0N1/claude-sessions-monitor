@@ -119,6 +119,25 @@ registra los hooks (con backup `settings.json.csm-backup` la primera vez) e inst
 servicio (launchd en macOS, systemd de usuario en Linux). En servidores Linux, para que
 el agente sobreviva al logout: `sudo loginctl enable-linger $USER`.
 
+### Varias máquinas en un solo panel
+
+El diseño es **un hub central + un agente por máquina**: todas las máquinas aparecen
+juntas en la misma página. No corras un hub en cada PC — elige la máquina más estable
+como hub y en las demás instala **solo el agente** con el comando `curl ... | sh` de
+arriba (usando la IP del hub central).
+
+Si una máquina ya corría su propio hub y quieres unificarla:
+
+```bash
+# en esa máquina:
+curl -fsSL http://<ip-del-hub-central>:4000/install.sh | sh  # repunta el agente al hub central
+./scripts/hub-service.sh uninstall                           # apaga su hub local (opcional)
+```
+
+El instalador detecta que el agente apuntaba a otro hub y reescribe la config hacia el
+central (conservando el nombre de la máquina). En segundos la verás aparecer en el
+panel central junto a las demás.
+
 ### Lanzar sesiones monitorizadas: `csm`
 
 ```bash
@@ -127,10 +146,19 @@ csm                 # crea (o reconecta a) la sesión tmux "csm-mi-proyecto" y a
                     # si hay conversación previa en el directorio, la retoma con --continue
 csm --new           # ignora la conversación previa y empieza de cero
 csm ls              # lista las sesiones csm
-csm attach <nombre> # toma control manual de cualquier sesión
+csm attach          # vuelve a tu sesión (si hay varias, las lista para elegir)
+csm attach <nombre> # toma control manual de una sesión concreta
 ```
 
 Dentro de tmux: `Ctrl-b d` te desconecta dejando a Claude trabajando.
+
+**La sesión sobrevive a cortes de conexión.** Si estás por SSH y se cae internet o
+se cierra el terminal, Claude sigue corriendo dentro de tmux. Al reconectarte basta
+con `csm attach` (o `csm` en la misma carpeta) para volver exactamente donde estabas.
+Al reengancharte se expulsan los clientes fantasma del SSH caído (evita la ventana
+congelada o encogida). En Linux con systemd, csm arranca el servidor tmux con
+`systemd-run --user --scope` para que sobreviva incluso si logind está configurado
+para matar procesos al cerrar sesión (`KillUserProcesses=yes`).
 
 Detalle técnico: csm lanza Claude envuelto en `sh -c` para que no sea hijo directo de
 tmux — si lo fuera, tmux le enviaría SIGCONT automáticamente y la pausa (SIGSTOP)
@@ -143,6 +171,12 @@ pueden pausar (la app lo avisa); basta terminarlas y relanzarlas con `csm`.
   carpetas de esa máquina, eliges dónde y se lanza una sesión csm ahí (tmux +
   Claude, con `--continue` si esa carpeta ya tenía conversación; la casilla
   "empezar de cero" lo evita). La sesión aparece en el panel en segundos.
+- **📸 Captura de pantalla** (cabecera de cada máquina online): pide al agente una
+  foto de la pantalla de esa máquina y la muestra en el teléfono (mantén pulsada la
+  imagen para guardarla). En macOS hay que autorizar **csm-agent** una vez en
+  Ajustes del Sistema → Privacidad y seguridad → **Grabación de pantalla** (y de
+  nuevo si se reinstala el agente, porque el binario cambia). En Linux usa
+  grim/gnome-screenshot/scrot/import según haya sesión gráfica.
 
 En el detalle de una sesión:
 

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # csm — lanzador de sesiones de Claude Code monitorizadas (dentro de tmux).
+# La sesión sobrevive a cortes de SSH/terminal: al volver, usa 'csm attach'.
 # Uso:
 #   csm [args de claude...]   crea/reusa la sesión tmux de este directorio y abre Claude
 #                             (si hay conversación previa aquí, la retoma con --continue)
 #   csm --new [args...]       ignora la conversación previa y empieza de cero
 #   csm ls                    lista las sesiones csm
-#   csm attach <nombre>       se engancha a una sesión existente
+#   csm attach [nombre]       vuelve a una sesión existente (sin nombre: entra
+#                             directo si solo hay una)
 #   csm help                  esta ayuda
 set -euo pipefail
 
@@ -13,7 +15,7 @@ die() { echo "csm: $*" >&2; exit 1; }
 
 command -v tmux >/dev/null 2>&1 || die "tmux no está instalado (macOS: brew install tmux | Debian: sudo apt install tmux)"
 
-usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # ¿Claude guardó conversaciones para este directorio? (~/.claude/projects/<cwd codificado>)
 # La codificación reemplaza todo carácter no alfanumérico por '-'; probamos la variante
@@ -38,8 +40,21 @@ attach_to() {
   if [ -n "${TMUX:-}" ]; then
     tmux switch-client -t "$1"
   else
-    tmux attach -t "$1"
+    # -d: desengancha clientes viejos (p. ej. un SSH que se cortó sin cerrar);
+    # si no, dejan la ventana congelada o encogida al reconectarse.
+    tmux attach -d -t "$1"
   fi
+}
+
+# Arranca el servidor tmux fuera del scope de la sesión SSH cuando es posible:
+# en Linux, si logind mata los procesos al cortarse la conexión
+# (KillUserProcesses=yes), un servidor tmux nacido dentro del SSH moriría con él.
+start_detached() {
+  if [ "$(uname -s)" = "Linux" ] && command -v systemd-run >/dev/null 2>&1 \
+    && ! tmux has-session 2>/dev/null; then
+    systemd-run --user --scope --quiet -- "$@" 2>/dev/null && return 0
+  fi
+  "$@"
 }
 
 case "${1:-}" in
@@ -49,8 +64,27 @@ case "${1:-}" in
     exit 0
     ;;
   attach)
-    [ -n "${2:-}" ] || die "uso: csm attach <nombre>"
-    attach_to "$2"
+    if [ -n "${2:-}" ]; then
+      attach_to "$2"
+      exit 0
+    fi
+    # sin nombre: si hay una sola sesión csm, entra directo; si hay varias, lista
+    # (bucle read en vez de mapfile: el bash de macOS es 3.2)
+    csm_sessions=()
+    while IFS= read -r s; do csm_sessions+=("$s"); done < <(
+      tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^csm-' || true
+    )
+    case "${#csm_sessions[@]}" in
+      0) die "no hay sesiones csm activas" ;;
+      1)
+        echo "Entrando a '${csm_sessions[0]}'..."
+        attach_to "${csm_sessions[0]}"
+        ;;
+      *)
+        echo "Hay varias sesiones csm; elige con 'csm attach <nombre>':"
+        tmux list-sessions -F '  #{session_name}  (#{pane_current_path})' 2>/dev/null | grep 'csm-'
+        ;;
+    esac
     exit 0
     ;;
   help | -h | --help)
@@ -94,5 +128,5 @@ echo "Creando sesión '$name' en $PWD ..."
 # Claude va envuelto en sh -c para NO ser hijo directo de tmux: si fuera hijo
 # directo, tmux le enviaría SIGCONT automáticamente y la pausa (SIGSTOP) del
 # monitor no se sostendría.
-tmux new-session -d -s "$name" -c "$PWD" sh -c '"$@"; :' csm-wrap "${cmd[@]}" ${claude_args+"${claude_args[@]}"}
+start_detached tmux new-session -d -s "$name" -c "$PWD" sh -c '"$@"; :' csm-wrap "${cmd[@]}" ${claude_args+"${claude_args[@]}"}
 attach_to "$name"
