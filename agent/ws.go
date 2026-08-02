@@ -204,7 +204,9 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 				action, _ := msg["action"].(string)
 				path, _ := msg["path"].(string)
 				fresh, _ := msg["fresh"].(bool)
-				ok, result, data := performMachineAction(action, path, fresh)
+				fileName, _ := msg["name"].(string)
+				fileData, _ := msg["data"].(string)
+				ok, result, data := performMachineAction(action, path, fresh, fileName, fileData)
 				if action != "list_dir" {
 					log.Printf("[machine_action] %s en %q: ok=%v %s", action, path, ok, result)
 				}
@@ -281,7 +283,7 @@ func sessionIDsByCwd(hs *hookState, cwd string) map[string]Session {
 }
 
 func capturePane(paneID string) (string, bool) {
-	out, err := tmuxCmd("capture-pane", "-p", "-e", "-t", paneID, "-S", "-300").Output()
+	out, err := tmuxCmd("capture-pane", "-p", "-e", "-t", paneID, "-S", "-1000").Output()
 	if err != nil {
 		return "", false
 	}

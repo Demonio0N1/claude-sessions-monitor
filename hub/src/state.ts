@@ -195,18 +195,22 @@ export function dispatchMachineAction(
   action: MachineActionKind,
   path?: string,
   fresh?: boolean,
+  name?: string,
+  data?: string,
 ): void {
   const machine = machines.get(machineId);
   if (!machine || !machine.online || !machine.ws) {
     send(appWs, { type: 'action_result', requestId, ok: false, message: 'la máquina está offline' });
     return;
   }
+  // put_file puede mover varios MB por la tailnet: dale más margen
+  const timeoutMs = action === 'put_file' ? 60_000 : 15_000;
   const timer = setTimeout(() => {
     pendingActions.delete(requestId);
     send(appWs, { type: 'action_result', requestId, ok: false, message: 'el agente no respondió (timeout)' });
-  }, 15_000);
+  }, timeoutMs);
   pendingActions.set(requestId, { ws: appWs, timer });
-  send(machine.ws, { type: 'machine_action', requestId, action, path, fresh });
+  send(machine.ws, { type: 'machine_action', requestId, action, path, fresh, name, data });
 }
 
 export function resolveAction(requestId: string, ok: boolean, message?: string, data?: unknown): void {

@@ -32,18 +32,20 @@ export function runAction(sessionId: string, action: ActionKind, text?: string):
   });
 }
 
-/** Acción dirigida a una máquina (listar carpetas, crear sesión) y su respuesta. */
+/** Acción dirigida a una máquina (listar carpetas, crear sesión, subir archivo) y su respuesta. */
 export function runMachineAction(
   machineId: string,
   action: MachineActionKind,
-  opts: { path?: string; fresh?: boolean } = {},
+  opts: { path?: string; fresh?: boolean; name?: string; data?: string } = {},
 ): Promise<ActionResult> {
   const requestId = newRequestId();
+  // subir un archivo grande por la tailnet puede tardar: margen mayor
+  const timeoutMs = action === 'put_file' ? 65_000 : 17_000;
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       off();
       resolve({ ok: false, message: 'sin respuesta del hub (timeout)' });
-    }, 17_000);
+    }, timeoutMs);
     const off = wsClient.onMessage((msg) => {
       if (msg.type === 'action_result' && msg.requestId === requestId) {
         clearTimeout(timer);

@@ -11,7 +11,8 @@ import type { AgentMsg, AppMsg } from './types.js';
 
 const app = Fastify({ logger: { level: 'warn' } });
 
-await app.register(websocket);
+// maxPayload amplio: la subida de archivos (put_file) viaja en base64 por el WS
+await app.register(websocket, { options: { maxPayload: 64 * 1024 * 1024 } });
 
 // ---- WebSocket: agentes ----
 app.get('/ws/agent', { websocket: true }, (socket: WebSocket) => {
@@ -86,7 +87,16 @@ app.get('/ws/app', { websocket: true }, (socket: WebSocket) => {
     else if (msg.type === 'action' && msg.requestId && msg.sessionId)
       state.dispatchAction(socket, msg.requestId, msg.sessionId, msg.action, msg.text);
     else if (msg.type === 'machine_action' && msg.requestId && msg.machineId)
-      state.dispatchMachineAction(socket, msg.requestId, msg.machineId, msg.action, msg.path, msg.fresh);
+      state.dispatchMachineAction(
+        socket,
+        msg.requestId,
+        msg.machineId,
+        msg.action,
+        msg.path,
+        msg.fresh,
+        msg.name,
+        msg.data,
+      );
   });
   socket.on('close', () => state.appDisconnected(socket));
   socket.on('error', () => socket.terminate());

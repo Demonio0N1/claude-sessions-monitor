@@ -4,11 +4,13 @@ import { timeAgo } from '../format';
 import SessionCard from './SessionCard';
 import NewSessionModal from './NewSessionModal';
 import ScreenshotModal from './ScreenshotModal';
+import UploadModal from './UploadModal';
 
 export default function MachineGroup({ machine }: { machine: MachineState }) {
   const { info, online, lastSeen, sessions } = machine;
   const [showNew, setShowNew] = useState(false);
   const [showShot, setShowShot] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
   return (
     <section className={online ? '' : 'opacity-55'}>
       <div className="mb-2 flex items-center gap-2">
@@ -25,6 +27,13 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
               title="captura de pantalla de esta máquina"
             >
               📸
+            </button>
+            <button
+              onClick={() => setShowUpload(true)}
+              className="rounded-lg border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 active:scale-95"
+              title="subir archivos o fotos a esta máquina"
+            >
+              📤
             </button>
             <button
               onClick={() => setShowNew(true)}
@@ -69,6 +78,7 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
       )}
       {showNew && <NewSessionModal machine={machine} onClose={() => setShowNew(false)} />}
       {showShot && <ScreenshotModal machine={machine} onClose={() => setShowShot(false)} />}
+      {showUpload && <UploadModal machine={machine} onClose={() => setShowUpload(false)} />}
     </section>
   );
 }

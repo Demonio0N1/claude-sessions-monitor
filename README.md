@@ -188,12 +188,20 @@ pueden pausar (la app lo avisa); basta terminarlas y relanzarlas con `csm`.
   Ajustes del Sistema → Privacidad y seguridad → **Grabación de pantalla** (y de
   nuevo si se reinstala el agente, porque el binario cambia). En Linux usa
   grim/gnome-screenshot/scrot/import según haya sesión gráfica.
+- **📤 Subir archivos y fotos** (cabecera de cada máquina online): navegas las
+  carpetas de la máquina, eliges destino y seleccionas fotos de la galería o
+  archivos (varios a la vez, hasta 30 MB cada uno). Si ya existe uno con ese
+  nombre, se guarda como `nombre-2.ext`. Útil para pasarle material a Claude y
+  luego pedirle por prompt que lo use.
 
 En el detalle de una sesión:
 
 - **Enviar prompts** (solo sesiones tmux): campo de texto al pie de la terminal, con
   historial local de enviados (botón 🕘) y protección contra doble envío. El texto se
   inyecta con `tmux send-keys` y la respuesta se ve en la terminal en vivo.
+- **Scroll en la terminal**: desliza hacia arriba para leer el historial (hasta
+  ~1000 líneas); mientras lees, la vista no salta con las actualizaciones y el
+  botón «⬇ en vivo» te devuelve al presente.
 - **⏸ Pausar / ▶ Reanudar**: SIGSTOP/SIGCONT; la sesión queda con el estado azul
   "Pausada". El agente verifica que la pausa se sostuvo antes de confirmar.
 - **⏹ Terminar**: confirmación obligatoria mostrando sesión y máquina; envía SIGTERM

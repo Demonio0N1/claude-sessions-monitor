@@ -5,6 +5,7 @@ import { promptHistory, rememberPrompt, runAction } from '../actions';
 import { toast } from '../toast';
 import StatusBadge from './StatusBadge';
 import Terminal from './Terminal';
+import UploadModal from './UploadModal';
 
 export default function SessionDetail({
   session,
@@ -16,6 +17,7 @@ export default function SessionDetail({
   const [events, setEvents] = useState<EventRow[]>([]);
   const [tab, setTab] = useState<'terminal' | 'info'>('terminal');
   const [showKill, setShowKill] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
   const [busy, setBusy] = useState(false);
   const offline = !machine.online;
 
@@ -72,6 +74,13 @@ export default function SessionDetail({
         ))}
         {!offline && (
           <div className="ml-auto flex gap-1.5">
+            <button
+              onClick={() => setShowUpload(true)}
+              className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 active:scale-95"
+              title="subir archivos o fotos a la carpeta de esta sesión"
+            >
+              📤
+            </button>
             <button
               onClick={pauseResume}
               disabled={busy}
@@ -167,6 +176,9 @@ export default function SessionDetail({
 
       {showKill && (
         <KillDialog session={session} machineName={machine.info.name} onClose={() => setShowKill(false)} />
+      )}
+      {showUpload && (
+        <UploadModal machine={machine} initialPath={session.cwd} onClose={() => setShowUpload(false)} />
       )}
     </div>
   );

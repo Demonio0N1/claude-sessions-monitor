@@ -9,8 +9,8 @@ export type SessionStatus =
 
 export type ActionKind = 'send_prompt' | 'send_key' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
-/** Acciones dirigidas a la máquina (no a una sesión): navegar carpetas, crear sesiones, capturar pantalla. */
-export type MachineActionKind = 'list_dir' | 'new_session' | 'screenshot';
+/** Acciones dirigidas a la máquina (no a una sesión): navegar carpetas, crear sesiones, capturar pantalla, subir archivos. */
+export type MachineActionKind = 'list_dir' | 'new_session' | 'screenshot' | 'put_file';
 
 export interface DirEntry {
   name: string;

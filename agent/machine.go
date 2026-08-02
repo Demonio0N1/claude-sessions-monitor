@@ -14,7 +14,7 @@ import (
 
 // performMachineAction ejecuta una acción dirigida a la máquina (no a una sesión).
 // Devuelve (ok, mensaje para el usuario, data opcional para la app).
-func performMachineAction(action, path string, fresh bool) (bool, string, any) {
+func performMachineAction(action, path string, fresh bool, name, data string) (bool, string, any) {
 	switch action {
 	case "list_dir":
 		listing, err := listDir(path)
@@ -23,19 +23,63 @@ func performMachineAction(action, path string, fresh bool) (bool, string, any) {
 		}
 		return true, "", listing
 	case "new_session":
-		name, err := newSession(path, fresh)
+		sess, err := newSession(path, fresh)
 		if err != nil {
 			return false, err.Error(), nil
 		}
-		return true, fmt.Sprintf("sesión '%s' creada en %s", name, path), map[string]any{"session": name}
+		return true, fmt.Sprintf("sesión '%s' creada en %s", sess, path), map[string]any{"session": sess}
 	case "screenshot":
 		img, err := takeScreenshot()
 		if err != nil {
 			return false, err.Error(), nil
 		}
 		return true, "", map[string]any{"image": img}
+	case "put_file":
+		dest, size, err := putFile(path, name, data)
+		if err != nil {
+			return false, err.Error(), nil
+		}
+		return true, fmt.Sprintf("%s guardado (%d KB)", filepath.Base(dest), size/1024), map[string]any{"path": dest}
 	}
 	return false, "acción desconocida: " + action, nil
+}
+
+// putFile escribe en dir un archivo subido desde la app (contenido en base64,
+// con o sin prefijo data URI). Si ya existe uno con ese nombre, agrega -2, -3…
+func putFile(dir, name, data string) (string, int, error) {
+	if dir == "" || data == "" {
+		return "", 0, fmt.Errorf("faltan la carpeta o el contenido del archivo")
+	}
+	dir = filepath.Clean(dir)
+	st, err := os.Stat(dir)
+	if err != nil || !st.IsDir() {
+		return "", 0, fmt.Errorf("%s no es una carpeta accesible", dir)
+	}
+	// nombre saneado: sin rutas ni caracteres de control
+	name = filepath.Base(strings.TrimSpace(name))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		name = "archivo"
+	}
+	if i := strings.IndexByte(data, ','); i >= 0 && strings.HasPrefix(data, "data:") {
+		data = data[i+1:]
+	}
+	b, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return "", 0, fmt.Errorf("contenido inválido (base64): %v", err)
+	}
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	dest := filepath.Join(dir, name)
+	for i := 2; ; i++ {
+		if _, err := os.Lstat(dest); os.IsNotExist(err) {
+			break
+		}
+		dest = filepath.Join(dir, fmt.Sprintf("%s-%d%s", stem, i, ext))
+	}
+	if err := os.WriteFile(dest, b, 0o644); err != nil {
+		return "", 0, fmt.Errorf("no pude escribir %s: %v", dest, err)
+	}
+	return dest, len(b), nil
 }
 
 // takeScreenshot captura la pantalla principal de la máquina y la devuelve

@@ -9,8 +9,8 @@ export type SessionStatus =
 
 export type ActionKind = 'send_prompt' | 'send_key' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
-/** Acciones dirigidas a la máquina (no a una sesión): navegar carpetas, crear sesiones, capturar pantalla. */
-export type MachineActionKind = 'list_dir' | 'new_session' | 'screenshot';
+/** Acciones dirigidas a la máquina (no a una sesión): navegar carpetas, crear sesiones, capturar pantalla, subir archivos. */
+export type MachineActionKind = 'list_dir' | 'new_session' | 'screenshot' | 'put_file';
 
 export interface DirEntry {
   name: string;
@@ -76,7 +76,15 @@ export type HubToAgent =
   | { type: 'subscribe'; sessionId: string }
   | { type: 'unsubscribe'; sessionId: string }
   | { type: 'action'; requestId: string; sessionId: string; action: ActionKind; text?: string }
-  | { type: 'machine_action'; requestId: string; action: MachineActionKind; path?: string; fresh?: boolean }
+  | {
+      type: 'machine_action';
+      requestId: string;
+      action: MachineActionKind;
+      path?: string;
+      fresh?: boolean;
+      name?: string; // put_file: nombre del archivo
+      data?: string; // put_file: contenido en base64 (data URI o base64 pelado)
+    }
   | { type: 'ping' };
 
 // hub -> app
@@ -97,4 +105,6 @@ export type AppMsg =
       action: MachineActionKind;
       path?: string;
       fresh?: boolean;
+      name?: string;
+      data?: string;
     };
