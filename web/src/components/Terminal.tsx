@@ -21,6 +21,7 @@ export default function Terminal({ globalId }: { globalId: string }) {
       fontSize: 12,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       scrollback: 3000,
+      smoothScrollDuration: 120,
       theme: {
         background: '#09090b',
         foreground: '#e4e4e7',

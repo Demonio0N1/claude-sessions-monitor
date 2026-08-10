@@ -40,15 +40,128 @@ func performMachineAction(action, path string, fresh bool, name, data string) (b
 			return false, err.Error(), nil
 		}
 		return true, fmt.Sprintf("%s guardado (%d KB)", filepath.Base(dest), size/1024), map[string]any{"path": dest}
+	case "get_file":
+		uri, err := getFile(path)
+		if err != nil {
+			return false, err.Error(), nil
+		}
+		return true, "", map[string]any{"name": filepath.Base(path), "data": uri}
+	case "delete_path":
+		if err := deletePath(path); err != nil {
+			return false, err.Error(), nil
+		}
+		return true, fmt.Sprintf("%s eliminado", filepath.Base(path)), nil
+	case "rename_path":
+		dest, err := renamePath(path, name)
+		if err != nil {
+			return false, err.Error(), nil
+		}
+		return true, fmt.Sprintf("renombrado a %s", filepath.Base(dest)), map[string]any{"path": dest}
+	case "mkdir":
+		dest, err := mkdirIn(path, name)
+		if err != nil {
+			return false, err.Error(), nil
+		}
+		return true, fmt.Sprintf("carpeta %s creada", filepath.Base(dest)), map[string]any{"path": dest}
+	case "new_terminal":
+		sess, err := newTerminal(path)
+		if err != nil {
+			return false, err.Error(), nil
+		}
+		return true, fmt.Sprintf("terminal '%s' abierto en %s", sess, path), map[string]any{"session": sess}
 	}
 	return false, "acción desconocida: " + action, nil
 }
 
+const maxDownloadMB = 50
+
+// getFile devuelve el contenido de un archivo como data URI para descargarlo
+// en el teléfono.
+func getFile(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("falta la ruta del archivo")
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("no puedo leer %s: %v", path, err)
+	}
+	if st.IsDir() {
+		return "", fmt.Errorf("%s es una carpeta", filepath.Base(path))
+	}
+	if st.Size() > maxDownloadMB*1024*1024 {
+		return "", fmt.Errorf("%s pesa %d MB (máximo %d MB)", filepath.Base(path), st.Size()/1024/1024, maxDownloadMB)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return "data:application/octet-stream;base64," + base64.StdEncoding.EncodeToString(b), nil
+}
+
+// deletePath elimina un archivo, o una carpeta solo si está vacía (sin rm -rf:
+// borrar árboles enteros desde el teléfono es demasiado fácil de lamentar).
+func deletePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("falta la ruta")
+	}
+	st, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("no existe %s", path)
+	}
+	if err := os.Remove(path); err != nil {
+		if st.IsDir() {
+			return fmt.Errorf("la carpeta no está vacía (borra su contenido primero)")
+		}
+		return err
+	}
+	return nil
+}
+
+func renamePath(path, newName string) (string, error) {
+	if path == "" || strings.TrimSpace(newName) == "" {
+		return "", fmt.Errorf("faltan la ruta o el nombre nuevo")
+	}
+	newName = filepath.Base(strings.TrimSpace(newName))
+	dest := filepath.Join(filepath.Dir(path), newName)
+	if dest == path {
+		return dest, nil
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		return "", fmt.Errorf("ya existe %s", newName)
+	}
+	if err := os.Rename(path, dest); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+func mkdirIn(dir, name string) (string, error) {
+	if dir == "" || strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("faltan la carpeta o el nombre")
+	}
+	dest := filepath.Join(dir, filepath.Base(strings.TrimSpace(name)))
+	if _, err := os.Lstat(dest); err == nil {
+		return "", fmt.Errorf("ya existe %s", filepath.Base(dest))
+	}
+	if err := os.Mkdir(dest, 0o755); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
 // putFile escribe en dir un archivo subido desde la app (contenido en base64,
 // con o sin prefijo data URI). Si ya existe uno con ese nombre, agrega -2, -3…
+// El destino especial "::tmp" guarda en la carpeta temporal de adjuntos: la usa
+// el botón 📎 para pasarle capturas a Claude sin ensuciar el proyecto.
 func putFile(dir, name, data string) (string, int, error) {
 	if dir == "" || data == "" {
 		return "", 0, fmt.Errorf("faltan la carpeta o el contenido del archivo")
+	}
+	if dir == "::tmp" {
+		dir = filepath.Join(os.TempDir(), "csm-adjuntos")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", 0, err
+		}
 	}
 	dir = filepath.Clean(dir)
 	st, err := os.Stat(dir)
@@ -137,8 +250,11 @@ func takeScreenshot() (string, error) {
 }
 
 type dirEntry struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Dir   bool   `json:"dir"`
+	Size  int64  `json:"size,omitempty"`
+	Mtime int64  `json:"mtime,omitempty"`
 }
 
 type dirListing struct {
@@ -148,8 +264,8 @@ type dirListing struct {
 	Entries []dirEntry `json:"entries"`
 }
 
-// listDir devuelve las subcarpetas de path (o de $HOME si path está vacío),
-// para el navegador de carpetas de la app. Oculta las que empiezan por punto.
+// listDir devuelve carpetas y archivos de path (o de $HOME si está vacío) para
+// el explorador de la app. Oculta los que empiezan por punto. Carpetas primero.
 func listDir(path string) (*dirListing, error) {
 	home, _ := os.UserHomeDir()
 	if path == "" {
@@ -160,30 +276,37 @@ func listDir(path string) (*dirListing, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no puedo leer %s: %v", path, err)
 	}
-	dirs := []dirEntry{}
+	entries := []dirEntry{}
 	for _, e := range ents {
 		name := e.Name()
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
+		full := filepath.Join(path, name)
 		isDir := e.IsDir()
-		if !isDir && e.Type()&os.ModeSymlink != 0 {
-			if st, err := os.Stat(filepath.Join(path, name)); err == nil && st.IsDir() {
-				isDir = true
+		var size, mtime int64
+		if st, err := os.Stat(full); err == nil { // sigue symlinks
+			isDir = st.IsDir()
+			if !isDir {
+				size = st.Size()
 			}
+			mtime = st.ModTime().UnixMilli()
+		} else if !isDir {
+			continue // symlink roto u otro artefacto ilegible
 		}
-		if isDir {
-			dirs = append(dirs, dirEntry{Name: name, Path: filepath.Join(path, name)})
-		}
+		entries = append(entries, dirEntry{Name: name, Path: full, Dir: isDir, Size: size, Mtime: mtime})
 	}
-	sort.Slice(dirs, func(i, j int) bool {
-		return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name)
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Dir != entries[j].Dir {
+			return entries[i].Dir // carpetas primero
+		}
+		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 	})
 	parent := filepath.Dir(path)
 	if parent == path {
 		parent = ""
 	}
-	return &dirListing{Path: path, Parent: parent, Home: home, Entries: dirs}, nil
+	return &dirListing{Path: path, Parent: parent, Home: home, Entries: entries}, nil
 }
 
 var (
@@ -261,6 +384,10 @@ func newSession(dir string, fresh bool) (string, error) {
 
 // sessionBase replica session_base de csm: "csm-" + basename saneado.
 func sessionBase(dir string) string {
+	return "csm-" + sanitizeBase(dir)
+}
+
+func sanitizeBase(dir string) string {
 	var b strings.Builder
 	for _, r := range filepath.Base(dir) {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
@@ -273,7 +400,51 @@ func sessionBase(dir string) string {
 	if s == "" {
 		s = "session"
 	}
-	return "csm-" + s
+	return s
+}
+
+// newTerminal abre una sesión tmux con el shell del usuario (sin Claude) en
+// dir; el prefijo csm-sh- hace que el monitor la publique como sesión de
+// terminal con pantalla en vivo.
+func newTerminal(dir string) (string, error) {
+	if dir == "" {
+		return "", fmt.Errorf("falta la carpeta donde abrir el terminal")
+	}
+	dir = filepath.Clean(dir)
+	st, err := os.Stat(dir)
+	if err != nil || !st.IsDir() {
+		return "", fmt.Errorf("%s no es una carpeta accesible", dir)
+	}
+	base := "csm-sh-" + sanitizeBase(dir)
+	name := base
+	for i := 2; ; i++ {
+		if tmuxCmd("has-session", "-t", "="+name).Run() != nil {
+			break
+		}
+		name = fmt.Sprintf("%s-%d", base, i)
+	}
+	if out, err := tmuxCmd("new-session", "-d", "-s", name, "-c", dir, userShell()).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("tmux new-session: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return name, nil
+}
+
+// userShell localiza el shell de login: como servicio no hay $SHELL en el
+// entorno, así que cae a los habituales por sistema.
+func userShell() string {
+	if s := os.Getenv("SHELL"); s != "" {
+		return s
+	}
+	candidates := []string{"/bin/zsh", "/bin/bash", "/bin/sh"}
+	if runtime.GOOS == "linux" {
+		candidates = []string{"/bin/bash", "/usr/bin/bash", "/bin/zsh", "/bin/sh"}
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return "sh"
 }
 
 // hasPreviousConversation replica la detección de csm: ¿hay .jsonl en

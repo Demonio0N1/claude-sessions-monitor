@@ -9,12 +9,25 @@ export type SessionStatus =
 
 export type ActionKind = 'send_prompt' | 'send_key' | 'pause' | 'resume' | 'kill' | 'force_kill';
 
-/** Acciones dirigidas a la máquina (no a una sesión): navegar carpetas, crear sesiones, capturar pantalla, subir archivos. */
-export type MachineActionKind = 'list_dir' | 'new_session' | 'screenshot' | 'put_file';
+/** Acciones dirigidas a la máquina (no a una sesión): explorador de archivos,
+ *  sesiones/terminales nuevos, captura de pantalla, subir/bajar archivos. */
+export type MachineActionKind =
+  | 'list_dir'
+  | 'new_session'
+  | 'new_terminal'
+  | 'screenshot'
+  | 'put_file'
+  | 'get_file'
+  | 'delete_path'
+  | 'rename_path'
+  | 'mkdir';
 
 export interface DirEntry {
   name: string;
   path: string;
+  dir?: boolean; // ausente en agentes viejos (solo devolvían carpetas)
+  size?: number; // bytes, solo archivos
+  mtime?: number; // epoch ms
 }
 
 /** Respuesta de list_dir. */

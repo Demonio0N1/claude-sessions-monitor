@@ -11,8 +11,15 @@ import type { AgentMsg, AppMsg } from './types.js';
 
 const app = Fastify({ logger: { level: 'warn' } });
 
-// maxPayload amplio: la subida de archivos (put_file) viaja en base64 por el WS
-await app.register(websocket, { options: { maxPayload: 64 * 1024 * 1024 } });
+// maxPayload amplio: la subida de archivos (put_file) viaja en base64 por el WS.
+// perMessageDeflate: el grueso del tráfico es texto de terminal y JSON repetitivo,
+// que comprime ~10x — clave para usar la app con datos móviles.
+await app.register(websocket, {
+  options: {
+    maxPayload: 64 * 1024 * 1024,
+    perMessageDeflate: { threshold: 512 },
+  },
+});
 
 // ---- WebSocket: agentes ----
 app.get('/ws/agent', { websocket: true }, (socket: WebSocket) => {

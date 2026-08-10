@@ -91,6 +91,9 @@ type proc struct {
 type tmuxPane struct {
 	session string
 	paneID  string
+	pid     int    // pane_pid: proceso raíz del pane (el shell)
+	created int64  // session_created (epoch s)
+	path    string // pane_current_path
 }
 
 // scanSessions detecta procesos de Claude Code y los cruza con panes de tmux y
@@ -124,6 +127,7 @@ func scanSessions(hs *hookState) []Session {
 		log.Printf("[scan-debug] bin=%q panes=%v claude_ttys=%v", tmuxPath(), keys, ttys)
 	}
 	sessions := make([]Session, 0, len(roots))
+	usedPanes := map[string]bool{}
 	for _, p := range roots {
 		cwd := procCwd(p.pid)
 		s := Session{
@@ -140,6 +144,7 @@ func scanSessions(hs *hookState) []Session {
 			s.TmuxSession = pane.session
 			s.ID = "tmux:" + pane.paneID
 			s.paneID = pane.paneID
+			usedPanes[pane.paneID] = true
 		} else {
 			s.Kind = "process"
 			s.ID = "pid:" + strconv.Itoa(p.pid)
@@ -160,6 +165,34 @@ func scanSessions(hs *hookState) []Session {
 		}
 		sessions = append(sessions, s)
 	}
+
+	// Terminales abiertos desde la app (tmux csm-sh-*): se publican con pantalla
+	// en vivo aunque no corran Claude. Si dentro corre Claude, el pane ya quedó
+	// reclamado arriba y no se duplica.
+	for _, pane := range panes {
+		if !strings.HasPrefix(pane.session, "csm-sh-") || usedPanes[pane.paneID] {
+			continue
+		}
+		s := Session{
+			ID:          "tmux:" + pane.paneID,
+			Kind:        "tmux",
+			TmuxSession: pane.session,
+			PID:         pane.pid,
+			Cwd:         pane.path,
+			Project:     "Terminal · " + filepath.Base(pane.path),
+			StartedAt:   pane.created * 1000,
+			Status:      "idle",
+			paneID:      pane.paneID,
+		}
+		if paneActivity(pane.paneID) == "working" {
+			s.Status = "active"
+		}
+		if p, ok := procs[pane.pid]; ok && strings.HasPrefix(p.stat, "T") {
+			s.Status = "paused"
+		}
+		sessions = append(sessions, s)
+	}
+
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].ID < sessions[j].ID })
 	return sessions
 }
@@ -271,10 +304,11 @@ func decodeLsofPath(s string) string {
 
 var lastTmuxErr string
 
-// listTmuxPanes devuelve pane_tty -> {session, paneID} de todas las sesiones tmux.
+// listTmuxPanes devuelve pane_tty -> pane de todas las sesiones tmux.
 // El nombre de sesión va al final y se parte con SplitN: puede contener "|".
 func listTmuxPanes() map[string]tmuxPane {
-	out, err := tmuxCmd("list-panes", "-a", "-F", "#{pane_tty}|#{pane_id}|#{session_name}").CombinedOutput()
+	out, err := tmuxCmd("list-panes", "-a", "-F",
+		"#{pane_tty}|#{pane_id}|#{pane_pid}|#{session_created}|#{pane_current_path}|#{session_name}").CombinedOutput()
 	if err != nil {
 		// tmux ausente o sin servidor no es un error, pero deja rastro si cambia
 		msg := err.Error() + ": " + strings.TrimSpace(string(out))
@@ -287,11 +321,13 @@ func listTmuxPanes() map[string]tmuxPane {
 	lastTmuxErr = ""
 	panes := map[string]tmuxPane{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		f := strings.SplitN(line, "|", 3)
-		if len(f) != 3 {
+		f := strings.SplitN(line, "|", 6)
+		if len(f) != 6 {
 			continue
 		}
-		panes[f[0]] = tmuxPane{session: f[2], paneID: f[1]}
+		pid, _ := strconv.Atoi(f[2])
+		created, _ := strconv.ParseInt(f[3], 10, 64)
+		panes[f[0]] = tmuxPane{paneID: f[1], pid: pid, created: created, path: f[4], session: f[5]}
 	}
 	return panes
 }

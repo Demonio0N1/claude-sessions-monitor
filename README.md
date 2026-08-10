@@ -188,17 +188,25 @@ pueden pausar (la app lo avisa); basta terminarlas y relanzarlas con `csm`.
   Ajustes del Sistema → Privacidad y seguridad → **Grabación de pantalla** (y de
   nuevo si se reinstala el agente, porque el binario cambia). En Linux usa
   grim/gnome-screenshot/scrot/import según haya sesión gráfica.
-- **📤 Subir archivos y fotos** (cabecera de cada máquina online): navegas las
-  carpetas de la máquina, eliges destino y seleccionas fotos de la galería o
-  archivos (varios a la vez, hasta 30 MB cada uno). Si ya existe uno con ese
-  nombre, se guarda como `nombre-2.ext`. Útil para pasarle material a Claude y
-  luego pedirle por prompt que lo use.
+- **📁 Archivos** (cabecera de cada máquina, y 📁 dentro de cada sesión abriendo
+  en su carpeta): explorador completo de la máquina — carpetas y archivos con
+  tamaño, subir fotos de la galería o archivos (varios, hasta 30 MB c/u, sin
+  pisar existentes), descargar al teléfono (hasta 50 MB), renombrar, eliminar
+  (carpetas solo vacías) y crear carpetas.
+- **🖥 Terminal aquí / ✳️ Claude aquí** (pie del explorador): abre en la carpeta
+  actual una sesión de Claude o un **terminal libre** (tmux `csm-sh-*` con tu
+  shell). Los terminales aparecen como sesiones "Terminal · carpeta" con
+  pantalla en vivo: puedes mandarles comandos desde el campo de texto (p. ej.
+  `csm` para lanzar Claude monitorizado, o cualquier comando de consola).
 
 En el detalle de una sesión:
 
 - **Enviar prompts** (solo sesiones tmux): campo de texto al pie de la terminal, con
   historial local de enviados (botón 🕘) y protección contra doble envío. El texto se
   inyecta con `tmux send-keys` y la respuesta se ve en la terminal en vivo.
+- **📎 Adjuntar capturas a Claude**: el clip del campo de texto sube fotos de la
+  galería a una carpeta temporal de la máquina (`$TMPDIR/csm-adjuntos`) e inserta
+  sus rutas en el mensaje; al enviarlo, Claude abre la ruta y ve la imagen.
 - **Scroll en la terminal**: desliza hacia arriba para leer el historial (hasta
   ~1000 líneas); mientras lees, la vista no salta con las actualizaciones y el
   botón «⬇ en vivo» te devuelve al presente.

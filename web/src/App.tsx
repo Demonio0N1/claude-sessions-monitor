@@ -58,37 +58,55 @@ export default function App() {
 
   return (
     <div className="mx-auto min-h-full max-w-3xl overflow-x-hidden px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))]">
-      <header className="mb-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Claude Sessions</h1>
-          <p className="text-sm text-zinc-400">
-            {totalSessions} {totalSessions === 1 ? 'sesión' : 'sesiones'} ·{' '}
-            {machines.filter((m) => m.online).length}/{machines.length} máquinas online
-          </p>
+      <header className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/25 to-emerald-900/30 text-xl shadow-lg shadow-emerald-950/40">
+            ✳️
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">
+              Claude <span className="text-emerald-300">Sessions</span>
+            </h1>
+            <p className="text-xs text-zinc-400">
+              {totalSessions} {totalSessions === 1 ? 'sesión' : 'sesiones'} ·{' '}
+              {machines.filter((m) => m.online).length}/{machines.length}{' '}
+              {machines.length === 1 ? 'máquina' : 'máquinas'} online
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
+        <div
+          className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+            conn === 'open'
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+              : conn === 'connecting'
+                ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                : 'border-red-500/30 bg-red-500/10 text-red-300'
+          }`}
+        >
           <span
-            className={`h-2.5 w-2.5 rounded-full ${
+            className={`h-2 w-2 rounded-full ${
               conn === 'open' ? 'bg-emerald-400' : conn === 'connecting' ? 'bg-amber-400 pulse-dot' : 'bg-red-500'
             }`}
           />
-          {conn === 'open' ? 'conectado' : conn === 'connecting' ? 'conectando…' : 'sin conexión'}
+          {conn === 'open' ? 'en vivo' : conn === 'connecting' ? 'conectando…' : 'sin conexión'}
         </div>
       </header>
 
       {machines.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-zinc-700 p-8 text-center text-zinc-400">
-          <p className="mb-2 text-lg">Sin máquinas registradas</p>
-          <p className="text-sm">
-            Instala el agente en una máquina:{' '}
-            <code className="break-all rounded bg-zinc-800 px-1.5 py-0.5 text-emerald-300">
+        <div className="card-in rounded-3xl border border-dashed border-zinc-700 bg-zinc-900/40 p-10 text-center text-zinc-400">
+          <p className="mb-3 text-4xl">👋</p>
+          <p className="mb-2 text-lg font-semibold text-zinc-200">Aún no hay máquinas</p>
+          <p className="text-sm leading-6">
+            Instala el agente en una máquina y aparecerá aquí sola:
+            <br />
+            <code className="mt-2 inline-block break-all rounded-lg bg-zinc-800 px-2 py-1 text-emerald-300">
               curl -fsSL http://&lt;hub&gt;:4000/install.sh | sh
             </code>
           </p>
         </div>
       )}
 
-      <div className="space-y-6">
+      <div className="space-y-5">
         {machines.map((m) => (
           <MachineGroup key={m.info.id} machine={m} />
         ))}

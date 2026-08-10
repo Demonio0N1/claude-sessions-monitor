@@ -9,9 +9,16 @@ class WSClient {
   private statusListeners = new Set<(s: ConnStatus) => void>();
   private subscribed = new Set<string>();
   private backoff = 1000;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
   status: ConnStatus = 'connecting';
 
   connect(): void {
+    // idempotente: si ya hay una conexión viva o en curso, no abre otra
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     this.setStatus('connecting');
     const ws = new WebSocket(`${proto}://${location.host}/ws/app`);
@@ -32,7 +39,7 @@ class WSClient {
     };
     ws.onclose = () => {
       this.setStatus('closed');
-      setTimeout(() => this.connect(), this.backoff);
+      this.retryTimer = setTimeout(() => this.connect(), this.backoff);
       this.backoff = Math.min(this.backoff * 1.7, 15_000);
     };
     ws.onerror = () => ws.close();
@@ -74,3 +81,14 @@ class WSClient {
 
 export const wsClient = new WSClient();
 wsClient.connect();
+
+// Al volver a la app (o recuperar red), reconecta al instante en vez de esperar
+// el backoff: en el teléfono la conexión muere cada vez que se va a segundo plano.
+function reconnectNow() {
+  if (document.visibilityState === 'visible' && wsClient.status === 'closed') {
+    wsClient.connect();
+  }
+}
+document.addEventListener('visibilitychange', reconnectNow);
+window.addEventListener('online', reconnectNow);
+window.addEventListener('focus', reconnectNow);

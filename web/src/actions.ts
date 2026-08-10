@@ -39,8 +39,8 @@ export function runMachineAction(
   opts: { path?: string; fresh?: boolean; name?: string; data?: string } = {},
 ): Promise<ActionResult> {
   const requestId = newRequestId();
-  // subir un archivo grande por la tailnet puede tardar: margen mayor
-  const timeoutMs = action === 'put_file' ? 65_000 : 17_000;
+  // subir/bajar un archivo grande por la tailnet puede tardar: margen mayor
+  const timeoutMs = action === 'put_file' || action === 'get_file' ? 65_000 : 17_000;
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       off();

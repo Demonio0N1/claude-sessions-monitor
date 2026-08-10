@@ -8,10 +8,29 @@ body,
 
 body {
   background-color: #09090b;
+  /* halo esmeralda sutil arriba: da profundidad sin distraer */
+  background-image:
+    radial-gradient(1100px 480px at 50% -12%, rgba(16, 185, 129, 0.08), transparent 60%),
+    radial-gradient(800px 400px at 110% 110%, rgba(56, 189, 248, 0.04), transparent 60%);
+  background-attachment: fixed;
   color: #fafafa;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
   overflow-x: hidden;
+}
+
+/* tacto de app nativa: sin flash azul al tocar, sin zoom por doble toque,
+   sin selección accidental de texto en los controles */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+[role='button'] {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 @keyframes pulse-dot {
@@ -26,4 +45,54 @@ body {
 
 .pulse-dot {
   animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+/* modales: el panel sube suave y el fondo aparece en fundido */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.modal-in {
+  animation: rise-in 0.22s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.backdrop-in {
+  animation: fade-in 0.18s ease-out;
+}
+
+/* las tarjetas entran con un fundido sutil al montar */
+.card-in {
+  animation: rise-in 0.25s ease-out;
+}
+
+/* transición entre pantallas: el detalle entra deslizándose desde la derecha */
+@keyframes slide-in-right {
+  from {
+    opacity: 0.4;
+    transform: translateX(26px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.page-in {
+  animation: slide-in-right 0.22s ease-out;
 }

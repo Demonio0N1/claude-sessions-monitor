@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EventRow, MachineState, SessionInfo } from '../types';
 import { eventLabel, timeAgo, uptime } from '../format';
-import { promptHistory, rememberPrompt, runAction } from '../actions';
+import { promptHistory, rememberPrompt, runAction, runMachineAction } from '../actions';
+import { prepareUpload } from '../image';
 import { toast } from '../toast';
 import StatusBadge from './StatusBadge';
 import Terminal from './Terminal';
-import UploadModal from './UploadModal';
+import FilesModal from './FilesModal';
 
 export default function SessionDetail({
   session,
@@ -19,6 +20,8 @@ export default function SessionDetail({
   const [showKill, setShowKill] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [busy, setBusy] = useState(false);
+  // ruta elegida en el explorador con "Usar con Claude" (nonce para repetir la misma)
+  const [insertReq, setInsertReq] = useState<{ text: string; n: number } | null>(null);
   const offline = !machine.online;
 
   useEffect(() => {
@@ -41,11 +44,11 @@ export default function SessionDetail({
   }
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="page-in flex h-dvh flex-col">
       <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           onClick={() => (location.hash = '#/')}
-          className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm active:scale-95"
+          className="rounded-xl border border-zinc-700/80 bg-zinc-800/70 px-3.5 py-1.5 text-sm transition active:scale-95 hover:border-zinc-500"
           aria-label="Volver"
         >
           ←
@@ -53,6 +56,7 @@ export default function SessionDetail({
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-base font-bold">{session.project}</h1>
           <p className="truncate text-xs text-zinc-400">
+            {machine.info.os === 'darwin' ? '🍎' : machine.info.os === 'linux' ? '🐧' : '💻'}{' '}
             {machine.info.name}
             {offline && ` · offline, visto ${timeAgo(machine.lastSeen)}`}
           </p>
@@ -77,9 +81,9 @@ export default function SessionDetail({
             <button
               onClick={() => setShowUpload(true)}
               className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 active:scale-95"
-              title="subir archivos o fotos a la carpeta de esta sesión"
+              title="archivos de la carpeta de esta sesión (subir, descargar, gestionar)"
             >
-              📤
+              📁
             </button>
             <button
               onClick={pauseResume}
@@ -110,7 +114,12 @@ export default function SessionDetail({
                 <Terminal globalId={session.globalId} />
               </div>
               <TerminalKeys globalId={session.globalId} />
-              <PromptComposer globalId={session.globalId} paused={paused} />
+              <PromptComposer
+                globalId={session.globalId}
+                machineId={machine.info.id}
+                paused={paused}
+                insert={insertReq}
+              />
             </>
           ) : (
             <div className="flex h-full items-center justify-center p-6 text-center text-sm text-zinc-400">
@@ -178,7 +187,12 @@ export default function SessionDetail({
         <KillDialog session={session} machineName={machine.info.name} onClose={() => setShowKill(false)} />
       )}
       {showUpload && (
-        <UploadModal machine={machine} initialPath={session.cwd} onClose={() => setShowUpload(false)} />
+        <FilesModal
+          machine={machine}
+          initialPath={session.cwd}
+          onClose={() => setShowUpload(false)}
+          onPick={(p) => setInsertReq({ text: p, n: Date.now() })}
+        />
       )}
     </div>
   );
@@ -286,12 +300,66 @@ function TerminalKeys({ globalId }: { globalId: string }) {
 
 // ---- composer de prompts (solo sesiones tmux online) ----
 
-function PromptComposer({ globalId, paused }: { globalId: string; paused: boolean }) {
+function PromptComposer({
+  globalId,
+  machineId,
+  paused,
+  insert,
+}: {
+  globalId: string;
+  machineId: string;
+  paused: boolean;
+  insert?: { text: string; n: number } | null;
+}) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [attaching, setAttaching] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
   const [history, setHistory] = useState(() => promptHistory(globalId));
   const [showHistory, setShowHistory] = useState(false);
   const lastSent = useRef({ text: '', ts: 0 });
+  const imageInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  // inserta la ruta elegida en el explorador ("Usar con Claude")
+  useEffect(() => {
+    if (!insert) return;
+    setText((t) => (t.trim() ? t.trimEnd() + '\n' : 'Mira: ') + insert.text);
+    toast('📄 ruta insertada — añade tu mensaje y envía');
+  }, [insert]);
+
+  // Sube capturas/fotos a la carpeta temporal de la máquina e inserta sus rutas
+  // en el mensaje: al enviarlo, Claude abre la ruta y ve la imagen.
+  async function attach(list: FileList | null) {
+    if (!list || list.length === 0 || attaching) return;
+    setAttaching(true);
+    const paths: string[] = [];
+    for (const f of Array.from(list)) {
+      if (f.size > 30 * 1024 * 1024) {
+        toast(`${f.name}: supera 30 MB`, 'error');
+        continue;
+      }
+      try {
+        // comprime las imágenes en el teléfono: ~10x menos datos y de sobra
+        // para que Claude las vea
+        const prep = await prepareUpload(f, true);
+        const res = await runMachineAction(machineId, 'put_file', {
+          path: '::tmp',
+          name: prep.name,
+          data: prep.dataUrl,
+        });
+        if (res.ok) paths.push((res.data as { path: string }).path);
+        else toast(`${f.name}: ${res.message ?? 'error al subir'}`, 'error');
+      } catch {
+        toast(`${f.name}: no se pudo leer`, 'error');
+      }
+    }
+    setAttaching(false);
+    if (paths.length > 0) {
+      setText((t) => (t.trim() ? t.trimEnd() + '\n' : 'Mira: ') + paths.join(' '));
+      toast(`📎 ${paths.length === 1 ? 'adjunto listo' : paths.length + ' adjuntos listos'} — añade tu mensaje y envía`);
+    }
+  }
 
   async function submit() {
     const t = text.trim();
@@ -338,7 +406,59 @@ function PromptComposer({ globalId, paused }: { globalId: string; paused: boolea
           ))}
         </div>
       )}
+      {showAttach && (
+        <div className="mb-2 flex gap-2">
+          <button
+            onClick={() => {
+              setShowAttach(false);
+              imageInput.current?.click();
+            }}
+            className="flex-1 rounded-xl border border-emerald-700/50 bg-emerald-950/40 px-3 py-2.5 text-sm font-semibold text-emerald-300 active:scale-[0.98]"
+          >
+            🖼 Foto o captura
+          </button>
+          <button
+            onClick={() => {
+              setShowAttach(false);
+              fileInput.current?.click();
+            }}
+            className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm font-semibold text-zinc-200 active:scale-[0.98]"
+          >
+            📄 Archivo
+          </button>
+        </div>
+      )}
       <div className="flex items-end gap-2">
+        <input
+          ref={imageInput}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            void attach(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            void attach(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <button
+          onClick={() => setShowAttach((v) => !v)}
+          disabled={attaching}
+          className="rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-400 active:scale-95 disabled:opacity-40"
+          aria-label="Adjuntar imagen o archivo para Claude"
+          title="Adjuntar imagen o archivo para Claude"
+        >
+          {attaching ? '⏳' : '📎'}
+        </button>
         <button
           onClick={() => setShowHistory((v) => !v)}
           disabled={history.length === 0}
@@ -362,6 +482,11 @@ function PromptComposer({ globalId, paused }: { globalId: string; paused: boolea
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onFocus={(e) => {
+            // con el teclado del teléfono abierto, asegura que el campo quede visible
+            const el = e.target;
+            setTimeout(() => el.scrollIntoView({ block: 'nearest' }), 250);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
           }}
@@ -418,8 +543,8 @@ function KillDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 p-4 sm:items-center">
-      <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-5">
+    <div className="backdrop-in fixed inset-0 z-40 flex items-end justify-center bg-black/70 p-4 sm:items-center">
+      <div className="modal-in w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-5">
         {phase === 'confirm' && (
           <>
             <h2 className="mb-2 text-base font-bold text-red-300">Terminar sesión</h2>

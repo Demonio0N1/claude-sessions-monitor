@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"hash/fnv"
 	"log"
+	"net/http"
 	"net/url"
 	"runtime"
 	"strings"
@@ -87,10 +88,18 @@ func hubWsURL(hubURL string) (string, error) {
 	return u.String(), nil
 }
 
+// wsDialer negocia compresión permessage-deflate: la salida de terminal que el
+// agente sube cada segundo comprime ~10x, clave si el hub está lejos.
+var wsDialer = &websocket.Dialer{
+	Proxy:             http.ProxyFromEnvironment,
+	HandshakeTimeout:  45 * time.Second,
+	EnableCompression: true,
+}
+
 // connectOnce mantiene una conexión con el hub hasta que se corta.
 // Devuelve true si llegó a autenticarse (hello_ok).
 func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, _, err := wsDialer.Dial(wsURL, nil)
 	if err != nil {
 		log.Printf("[ws] no pude conectar a %s: %v", wsURL, err)
 		return false

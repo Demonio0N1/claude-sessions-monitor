@@ -203,8 +203,8 @@ export function dispatchMachineAction(
     send(appWs, { type: 'action_result', requestId, ok: false, message: 'la máquina está offline' });
     return;
   }
-  // put_file puede mover varios MB por la tailnet: dale más margen
-  const timeoutMs = action === 'put_file' ? 60_000 : 15_000;
+  // subir/bajar archivos puede mover varios MB por la tailnet: más margen
+  const timeoutMs = action === 'put_file' || action === 'get_file' ? 60_000 : 15_000;
   const timer = setTimeout(() => {
     pendingActions.delete(requestId);
     send(appWs, { type: 'action_result', requestId, ok: false, message: 'el agente no respondió (timeout)' });
@@ -235,13 +235,23 @@ export function snapshot(): MachineState[] {
 }
 
 let broadcastPending = false;
+let lastBroadcastKey = '';
 
 export function broadcast(): void {
   if (broadcastPending) return;
   broadcastPending = true;
   setTimeout(() => {
     broadcastPending = false;
-    const msg = JSON.stringify({ type: 'state', machines: snapshot() } satisfies HubToApp);
+    const machines_ = snapshot();
+    // Clave sin el lastSeen de las máquinas online: los agentes refrescan cada
+    // pocos segundos y sin esto cada refresco re-difundía TODO el estado a
+    // todas las apps aunque nada visible hubiera cambiado (ahorro de datos).
+    const key = JSON.stringify(
+      machines_.map((m) => (m.online ? { ...m, lastSeen: 0 } : m)),
+    );
+    if (key === lastBroadcastKey) return;
+    lastBroadcastKey = key;
+    const msg = JSON.stringify({ type: 'state', machines: machines_ } satisfies HubToApp);
     for (const app of apps) if (app.readyState === app.OPEN) app.send(msg);
   }, 50);
 }

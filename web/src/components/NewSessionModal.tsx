@@ -60,11 +60,11 @@ export default function NewSessionModal({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4 backdrop-in"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-t-2xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:rounded-2xl"
+        className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-t-2xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:rounded-2xl modal-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
@@ -107,10 +107,12 @@ export default function NewSessionModal({
             <p className="px-2 py-3 text-sm text-red-300">{error}</p>
           ) : loading ? (
             <p className="px-2 py-3 text-sm text-zinc-500">Cargando…</p>
-          ) : listing && listing.entries.length === 0 ? (
+          ) : listing && listing.entries.filter((e) => e.dir !== false).length === 0 ? (
             <p className="px-2 py-3 text-sm text-zinc-500">Sin subcarpetas. Puedes abrir la sesión aquí.</p>
           ) : (
-            listing?.entries.map((e) => (
+            listing?.entries
+              .filter((e) => e.dir !== false) // los agentes nuevos listan también archivos
+              .map((e) => (
               <button
                 key={e.path}
                 onClick={() => navigate(e.path)}

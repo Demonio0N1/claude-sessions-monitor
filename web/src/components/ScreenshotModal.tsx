@@ -30,11 +30,11 @@ export default function ScreenshotModal({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4 backdrop-in"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[90dvh] w-full max-w-3xl flex-col rounded-t-2xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:rounded-2xl"
+        className="flex max-h-[90dvh] w-full max-w-3xl flex-col rounded-t-2xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:rounded-2xl modal-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
