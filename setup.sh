@@ -5,6 +5,13 @@
 #   git clone https://github.com/Demonio0N1/claude-sessions-monitor.git
 #   cd claude-sessions-monitor && ./setup.sh
 #
+# Al arrancar pregunta si esta máquina va a tener su propio panel (hub) o si
+# quieres sumarla al panel de OTRA máquina que ya tengas corriendo en tu
+# tailnet (para verlas todas juntas en una sola página) — en ese caso se
+# salta todo el build y solo instala el agente contra ese hub. Para saltarte
+# la pregunta: CSM_JOIN_HUB=http://<ip>:4000 ./setup.sh (o "" para forzar
+# instalación de hub nuevo sin preguntar, en modo no interactivo).
+#
 # Idempotente: puedes re-ejecutarlo tras un git pull para actualizar todo.
 set -eu
 
@@ -20,6 +27,92 @@ die() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 SUDO=""
 [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+
+# ---------- 0. ¿panel nuevo aquí o sumar esta máquina a uno que ya existe? ----------
+# Detecta automáticamente paneles ya activos en tu tailnet (vía `tailscale
+# status` + una prueba HTTP corta a cada candidato) para que elijas de una
+# lista en vez de tener que saber/pegar la IP de memoria.
+TS_BIN=""
+if command -v tailscale >/dev/null 2>&1; then
+  TS_BIN=tailscale
+elif [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then
+  TS_BIN=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+fi
+
+JOIN_HUB="${CSM_JOIN_HUB-}"
+if [ -z "${CSM_JOIN_HUB+x}" ] && [ -t 0 ]; then
+  FOUND_LIST=$(mktemp)
+  if [ -n "$TS_BIN" ]; then
+    log "Buscando paneles ya activos en tu tailnet..."
+    SELF_IP=$("$TS_BIN" ip -4 2>/dev/null | head -1 || true)
+    "$TS_BIN" status 2>/dev/null | awk -v self="$SELF_IP" \
+      '$1 ~ /^100\./ && $1 != self && ($4 == "macOS" || $4 == "linux") { print $1"|"$2 }' \
+      > /tmp/csm-setup-candidates.$$
+    while IFS='|' read -r ip name; do
+      [ -z "$ip" ] && continue
+      curl -fsS -m 1 "http://$ip:$HUB_PORT/api/state" >/dev/null 2>&1 \
+        && printf '%s|%s\n' "$ip" "$name" >> "$FOUND_LIST"
+    done < /tmp/csm-setup-candidates.$$
+    rm -f /tmp/csm-setup-candidates.$$
+  fi
+
+  if [ -s "$FOUND_LIST" ]; then
+    echo ""
+    echo "Encontré estos paneles ya activos en tu tailnet:"
+    i=0
+    while IFS='|' read -r ip name; do
+      i=$((i + 1))
+      echo "  $i) $name ($ip)"
+    done < "$FOUND_LIST"
+    echo "  0) No, instalar el panel aquí (esta máquina será el hub)"
+    printf "Elige una opción [0]: "
+    read -r CHOICE || true
+    CHOICE=${CHOICE:-0}
+    if [ "$CHOICE" != "0" ]; then
+      LINE=$(sed -n "${CHOICE}p" "$FOUND_LIST")
+      if [ -n "$LINE" ]; then
+        JOIN_HUB="http://${LINE%%|*}:$HUB_PORT"
+      else
+        warn "opción inválida, instalo el panel aquí"
+      fi
+    fi
+  else
+    echo ""
+    echo "No encontré ningún panel activo en tu tailnet (o no detecté Tailscale)."
+    echo "Si ya tienes uno en otra máquina, pega su URL; si no, déjalo vacío."
+    printf "  URL del hub existente (ej. http://100.x.x.x:4000): "
+    read -r JOIN_HUB || true
+  fi
+  rm -f "$FOUND_LIST"
+fi
+
+if [ -n "$JOIN_HUB" ]; then
+  log "Sumando esta máquina al panel existente: $JOIN_HUB (sin instalar hub aquí)"
+  if ! command -v tmux >/dev/null 2>&1; then
+    log "Instalando tmux"
+    case "$OS" in
+      Darwin) command -v brew >/dev/null 2>&1 && brew install tmux ;;
+      Linux)
+        if command -v apt-get >/dev/null 2>&1; then
+          $SUDO apt-get update -qq && $SUDO apt-get install -y -qq curl ca-certificates tmux >/dev/null
+        elif command -v dnf >/dev/null 2>&1; then
+          $SUDO dnf install -y curl tmux >/dev/null
+        elif command -v pacman >/dev/null 2>&1; then
+          $SUDO pacman -Sy --noconfirm --needed curl tmux >/dev/null
+        else
+          warn "gestor de paquetes no reconocido: instala tmux a mano"
+        fi
+        ;;
+    esac
+  fi
+  curl -fsSL "${JOIN_HUB%/}/install.sh" | sh
+  log "Listo ✅ — esta máquina ya reporta a $JOIN_HUB"
+  echo "  Panel:    $JOIN_HUB  (ábrelo desde el celular vía Tailscale, ahí verás esta máquina)"
+  echo "  Sesiones: cd <proyecto> && csm   (agrega ~/.local/bin a tu PATH si hace falta)"
+  exit 0
+fi
+
+log "Instalando panel (hub) nuevo en esta máquina"
 
 node_ok() {
   command -v node >/dev/null 2>&1 || return 1

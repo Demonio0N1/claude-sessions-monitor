@@ -50,11 +50,18 @@ git clone https://github.com/Demonio0N1/claude-sessions-monitor.git
 cd claude-sessions-monitor && ./setup.sh
 ```
 
-`setup.sh` instala las dependencias (Node 20+, Go 1.22+, tmux), compila la web y los
-binarios del agente, deja el hub corriendo como servicio con **arranque automático al
-encender la máquina** (launchd en macOS, systemd de usuario en Linux) e instala el
-agente local. Al final imprime la URL del panel y el comando para sumar más máquinas
-(que solo necesitan el one-liner del agente, no el repo).
+`setup.sh` primero pregunta si esta máquina va a tener su **propio panel** (deja el
+campo vacío) o si quieres **sumarla al panel de otra máquina** que ya tengas corriendo
+en tu tailnet (pegas su URL, ej. `http://100.x.x.x:4000`) — así todas aparecen juntas
+en una sola página en vez de cada una con su propio panel suelto. Si sumas, se salta
+todo el build (no hace falta Node/Go) y solo instala el agente apuntando a ese hub.
+
+Si dejas el campo vacío, instala las dependencias (Node 20+, Go 1.22+, tmux), compila la
+web y los binarios del agente, deja el hub corriendo como servicio con **arranque
+automático al encender la máquina** (launchd en macOS, systemd de usuario en Linux) e
+instala el agente local. Al final imprime la URL del panel y el comando para sumar más
+máquinas (que solo necesitan el one-liner del agente, no el repo — o volver a correr
+`./setup.sh` ahí y pegar esta URL cuando pregunte).
 
 El servicio no corre desde el repo: el runtime se copia a `~/.local/share/csm-hub/app`
 y los datos (token, base de datos, log) viven en `~/.local/share/csm-hub/data`. Por eso
