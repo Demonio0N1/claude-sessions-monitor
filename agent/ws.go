@@ -215,7 +215,9 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 				fresh, _ := msg["fresh"].(bool)
 				fileName, _ := msg["name"].(string)
 				fileData, _ := msg["data"].(string)
-				ok, result, data := performMachineAction(action, path, fresh, fileName, fileData)
+				agentKind, _ := msg["agent"].(string)
+				gateway, _ := msg["gateway"].(bool)
+				ok, result, data := performMachineAction(action, path, fresh, fileName, fileData, agentKind, gateway)
 				if action != "list_dir" {
 					log.Printf("[machine_action] %s en %q: ok=%v %s", action, path, ok, result)
 				}

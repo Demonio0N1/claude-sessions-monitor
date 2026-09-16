@@ -1,6 +1,7 @@
 import type { SessionInfo, SessionStatus } from '../types';
 import { eventLabel, timeAgo, uptime } from '../format';
 import StatusBadge from './StatusBadge';
+import { agentInfo } from '../agents';
 
 // barra de acento a la izquierda según el estado (misma paleta que StatusBadge)
 const ACCENT: Record<SessionStatus, string> = {
@@ -25,7 +26,18 @@ export default function SessionCard({ session, offline }: { session: SessionInfo
       }`}
     >
       <div className="mb-1.5 flex items-start justify-between gap-2">
-        <span className="truncate text-base font-semibold">{s.project || '(sin proyecto)'}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          {s.agent && (
+            <span
+              className="shrink-0 text-sm"
+              title={agentInfo(s.agent).label}
+              aria-label={agentInfo(s.agent).label}
+            >
+              {agentInfo(s.agent).icon}
+            </span>
+          )}
+          <span className="truncate text-base font-semibold">{s.project || '(sin proyecto)'}</span>
+        </span>
         <span className="flex shrink-0 items-center gap-1.5">
           <StatusBadge status={s.status} offline={offline} />
           <span className="text-zinc-600">›</span>

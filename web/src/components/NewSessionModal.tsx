@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import type { DirListing, MachineState } from '../types';
 import { runMachineAction } from '../actions';
 import { toast } from '../toast';
+import { AGENT_OPTIONS } from '../agents';
 
 /**
  * Modal para crear una sesión csm nueva: navega las carpetas de la máquina
- * remota (vía el agente) y lanza Claude en la carpeta elegida.
+ * remota (vía el agente) y lanza el CLI elegido (Claude, Codex, OpenCode o
+ * Cursor) en la carpeta elegida.
  */
 export default function NewSessionModal({
   machine,
@@ -19,6 +21,9 @@ export default function NewSessionModal({
   const [error, setError] = useState<string | null>(null);
   const [fresh, setFresh] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [agent, setAgent] = useState(AGENT_OPTIONS[0].kind);
+  const [gateway, setGateway] = useState(false);
+  const agentLabel = AGENT_OPTIONS.find((a) => a.kind === agent)?.label ?? 'Claude';
 
   const navigate = async (path?: string) => {
     setLoading(true);
@@ -40,6 +45,8 @@ export default function NewSessionModal({
     const res = await runMachineAction(machine.info.id, 'new_session', {
       path: listing.path,
       fresh,
+      agent,
+      gateway,
     });
     setCreating(false);
     if (res.ok) {
@@ -127,6 +134,24 @@ export default function NewSessionModal({
         </div>
 
         <div className="space-y-3 border-t border-zinc-800 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div>
+            <p className="mb-1.5 text-xs text-zinc-500">Agente</p>
+            <div className="flex flex-wrap gap-1.5">
+              {AGENT_OPTIONS.map((a) => (
+                <button
+                  key={a.kind}
+                  onClick={() => setAgent(a.kind)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium active:scale-95 ${
+                    agent === a.kind
+                      ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300'
+                      : 'border-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  {a.icon} {a.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="flex items-center gap-2 text-sm text-zinc-300">
             <input
               type="checkbox"
@@ -136,12 +161,21 @@ export default function NewSessionModal({
             />
             Empezar de cero (ignorar conversación previa)
           </label>
+          <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <input
+              type="checkbox"
+              checked={gateway}
+              onChange={(e) => setGateway(e.target.checked)}
+              className="h-4 w-4 accent-emerald-500"
+            />
+            Usar OmniRoute (modelos gratis/baratos, requiere tenerlo corriendo en esa máquina)
+          </label>
           <button
             onClick={create}
             disabled={!listing || loading || creating}
             className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white active:scale-[0.98] disabled:opacity-50"
           >
-            {creating ? 'Creando sesión…' : `▶ Abrir Claude en ${shownPath || 'esta carpeta'}`}
+            {creating ? 'Creando sesión…' : `▶ Abrir ${agentLabel} en ${shownPath || 'esta carpeta'}`}
           </button>
         </div>
       </div>

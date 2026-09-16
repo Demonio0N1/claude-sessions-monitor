@@ -155,6 +155,8 @@ Para dejar de reportar a un hub: `csm-agent remove-hub http://<ip>:4000`.
 cd ~/mi-proyecto
 csm                 # crea (o reconecta a) la sesión tmux "csm-mi-proyecto" y abre Claude
                     # si hay conversación previa en el directorio, la retoma con --continue
+csm codex           # igual, pero con Codex/OpenCode/Cursor CLI (codex | opencode | cursor-agent)
+                    # estos se lanzan siempre limpios, sin detectar conversación previa
 csm --new           # ignora la conversación previa y empieza de cero
 csm ls              # lista las sesiones csm
 csm attach          # vuelve a tu sesión (si hay varias, las lista para elegir)
@@ -179,9 +181,20 @@ pueden pausar (la app lo avisa); basta terminarlas y relanzarlas con `csm`.
 ### Control remoto desde la app (fase 2)
 
 - **+ Nueva sesión** (cabecera de cada máquina online): abre un navegador de
-  carpetas de esa máquina, eliges dónde y se lanza una sesión csm ahí (tmux +
-  Claude, con `--continue` si esa carpeta ya tenía conversación; la casilla
-  "empezar de cero" lo evita). La sesión aparece en el panel en segundos.
+  carpetas de esa máquina, eliges dónde y qué agente lanzar (**Claude**,
+  **Codex**, **OpenCode** o **Cursor CLI**) y se lanza una sesión csm ahí
+  (tmux + el CLI elegido, con `--continue` si aplica y esa carpeta ya tenía
+  conversación — confirmado para Claude y OpenCode; la casilla "empezar de
+  cero" lo evita). El binario debe estar instalado en esa máquina, si no el
+  lanzamiento falla con un mensaje claro. La sesión aparece en el panel en
+  segundos, con un icono junto al nombre del proyecto indicando qué agente
+  corre ahí.
+  - Casilla **"Usar OmniRoute"**: si en esa máquina tienes corriendo
+    [OmniRoute](https://github.com/diegosouzapw/OmniRoute) (gateway local de
+    modelos, `npm i -g omniroute`, expone `http://localhost:20128`), la
+    sesión se lanza con `ANTHROPIC_BASE_URL`/`OPENAI_BASE_URL` apuntando ahí
+    en vez de tu suscripción — csm no instala ni gestiona OmniRoute, solo
+    enruta hacia él si le dices que lo hay.
 - **📸 Captura de pantalla** (cabecera de cada máquina online): pide al agente una
   foto de la pantalla de esa máquina y la muestra en el teléfono (mantén pulsada la
   imagen para guardarla). En macOS hay que autorizar **csm-agent** una vez en
@@ -230,6 +243,11 @@ Las sesiones de visibilidad limitada (fuera de tmux) solo admiten pausar/termina
 
 - El estado por hooks se correlaciona por **directorio de trabajo**: dos sesiones de
   Claude en el MISMO directorio comparten estado.
+- Los hooks (estado semántico fino: activa/esperando input/terminada) son
+  específicos de Claude Code. Las sesiones de Codex/OpenCode/Cursor CLI se
+  apoyan solo en el heurístico de pantalla (¿cambió el pane hace poco? →
+  activa); los diálogos de confirmación de esos CLIs no se detectan todavía
+  como "elige opción", quedan en "inactiva" hasta que vuelva a haber salida.
 - La captura de terminal es un snapshot de pane cada 1 s (solo se envía si cambió).
 - Si el agente se reinicia, los estados vuelven a "inactiva" hasta el siguiente evento.
 - Pausar congela el proceso principal de Claude; comandos hijos ya lanzados (tests,

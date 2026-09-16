@@ -197,6 +197,8 @@ export function dispatchMachineAction(
   fresh?: boolean,
   name?: string,
   data?: string,
+  agent?: string,
+  gateway?: boolean,
 ): void {
   const machine = machines.get(machineId);
   if (!machine || !machine.online || !machine.ws) {
@@ -210,7 +212,7 @@ export function dispatchMachineAction(
     send(appWs, { type: 'action_result', requestId, ok: false, message: 'el agente no respondió (timeout)' });
   }, timeoutMs);
   pendingActions.set(requestId, { ws: appWs, timer });
-  send(machine.ws, { type: 'machine_action', requestId, action, path, fresh, name, data });
+  send(machine.ws, { type: 'machine_action', requestId, action, path, fresh, name, data, agent, gateway });
 }
 
 export function resolveAction(requestId: string, ok: boolean, message?: string, data?: unknown): void {

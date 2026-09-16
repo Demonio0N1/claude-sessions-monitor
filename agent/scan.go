@@ -68,6 +68,7 @@ func tmuxCmd(args ...string) *exec.Cmd {
 type Session struct {
 	ID          string `json:"id"`
 	Kind        string `json:"kind"` // "tmux" | "process"
+	Agent       string `json:"agent,omitempty"` // "claude" | "codex" | "opencode" | "cursor-agent" (ver agents.go)
 	TmuxSession string `json:"tmuxSession,omitempty"`
 	PID         int    `json:"pid"`
 	Cwd         string `json:"cwd"`
@@ -96,20 +97,23 @@ type tmuxPane struct {
 	path    string // pane_current_path
 }
 
-// scanSessions detecta procesos de Claude Code y los cruza con panes de tmux y
-// el estado reportado por los hooks. Es 100% pasivo (solo ps/lsof/tmux de lectura).
+// scanSessions detecta procesos de agentes de IA conocidos (claude, codex,
+// opencode, cursor-agent — ver agents.go) y los cruza con panes de tmux y el
+// estado reportado por los hooks. Es 100% pasivo (solo ps/lsof/tmux de lectura).
 func scanSessions(hs *hookState) []Session {
 	procs := listProcs()
-	claude := map[int]proc{}
+	agentProcs := map[int]proc{}
+	agentKindByPID := map[int]string{}
 	for pid, p := range procs {
-		if isClaudeCmd(p.args) {
-			claude[pid] = p
+		if kind := detectAgentKind(p.args); kind != "" {
+			agentProcs[pid] = p
+			agentKindByPID[pid] = kind
 		}
 	}
-	// descarta descendientes de otro proceso claude (helpers, shells hijos)
+	// descarta descendientes de otro proceso agente (helpers, shells hijos)
 	roots := []proc{}
-	for pid, p := range claude {
-		if !hasClaudeAncestor(pid, procs, claude) {
+	for pid, p := range agentProcs {
+		if !hasAgentAncestor(pid, procs, agentProcs) {
 			roots = append(roots, p)
 		}
 	}
@@ -124,7 +128,7 @@ func scanSessions(hs *hookState) []Session {
 		for _, p := range roots {
 			ttys = append(ttys, p.tty)
 		}
-		log.Printf("[scan-debug] bin=%q panes=%v claude_ttys=%v", tmuxPath(), keys, ttys)
+		log.Printf("[scan-debug] bin=%q panes=%v agent_ttys=%v", tmuxPath(), keys, ttys)
 	}
 	sessions := make([]Session, 0, len(roots))
 	usedPanes := map[string]bool{}
@@ -132,6 +136,7 @@ func scanSessions(hs *hookState) []Session {
 		cwd := procCwd(p.pid)
 		s := Session{
 			PID:       p.pid,
+			Agent:     agentKindByPID[p.pid],
 			Cwd:       cwd,
 			Project:   filepath.Base(cwd),
 			StartedAt: startedFromEtime(p.etime),
@@ -218,41 +223,60 @@ func listProcs() map[int]proc {
 	return procs
 }
 
-func isClaudeCmd(args []string) bool {
+// detectAgentKind identifica si args corresponde a uno de los agentes
+// conocidos (knownAgents, agents.go) y devuelve su Kind, o "" si no es
+// ninguno. Preserva exactamente la detección original de Claude Code
+// (incluido el caso especial "claude-code" para instalaciones vía npm) y la
+// generaliza al resto de binarios registrados.
+func detectAgentKind(args []string) string {
 	if len(args) == 0 {
-		return false
+		return ""
 	}
 	full := strings.Join(args, " ")
 	if strings.Contains(full, "csm-agent") {
-		return false
+		return ""
+	}
+	// Un binario empaquetado dentro de una app de escritorio (.app/Contents/…)
+	// no es una instalación de CLI real: evita falsos positivos como el
+	// "codex" interno que corre ChatGPT.app (servidor MCP, no sesión de
+	// terminal — se detectó probando este cambio en una Mac real).
+	if strings.Contains(args[0], ".app/Contents/") {
+		return ""
 	}
 	base := filepath.Base(args[0])
-	if base == "claude" {
-		return true
+	for _, def := range knownAgents {
+		if base == def.Bin {
+			return def.Kind
+		}
 	}
-	// instalaciones vía npm: node/bun ejecutando el cli de claude-code
+	// instalaciones vía npm: node/bun ejecutando el cli directamente
 	if base == "node" || base == "bun" {
 		limit := len(args)
 		if limit > 4 {
 			limit = 4
 		}
 		for _, a := range args[1:limit] {
-			if strings.HasSuffix(a, "/claude") || strings.Contains(a, "claude-code") {
-				return true
+			for _, def := range knownAgents {
+				if strings.HasSuffix(a, "/"+def.Bin) {
+					return def.Kind
+				}
+				if def.Kind == "claude" && strings.Contains(a, "claude-code") {
+					return def.Kind
+				}
 			}
 		}
 	}
-	return false
+	return ""
 }
 
-func hasClaudeAncestor(pid int, procs map[int]proc, claude map[int]proc) bool {
+func hasAgentAncestor(pid int, procs map[int]proc, agentProcs map[int]proc) bool {
 	cur := pid
 	for i := 0; i < 32; i++ {
 		p, ok := procs[cur]
 		if !ok || p.ppid <= 1 {
 			return false
 		}
-		if _, isClaude := claude[p.ppid]; isClaude {
+		if _, isAgent := agentProcs[p.ppid]; isAgent {
 			return true
 		}
 		cur = p.ppid

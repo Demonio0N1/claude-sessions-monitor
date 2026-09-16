@@ -42,6 +42,7 @@ export interface SessionInfo {
   /** Id local a la máquina, ej. "tmux:%3" o "pid:1234" */
   id: string;
   kind: 'tmux' | 'process';
+  agent?: string;
   tmuxSession?: string;
   pid: number;
   cwd: string;
@@ -97,6 +98,8 @@ export type HubToAgent =
       fresh?: boolean;
       name?: string; // put_file: nombre del archivo
       data?: string; // put_file: contenido en base64 (data URI o base64 pelado)
+      agent?: string; // new_session: qué CLI lanzar (default claude)
+      gateway?: boolean; // new_session: enrutar por OmniRoute (localhost:20128)
     }
   | { type: 'ping' };
 
@@ -120,4 +123,6 @@ export type AppMsg =
       fresh?: boolean;
       name?: string;
       data?: string;
+      agent?: string;
+      gateway?: boolean;
     };

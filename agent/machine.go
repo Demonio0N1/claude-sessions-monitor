@@ -9,12 +9,11 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 )
 
 // performMachineAction ejecuta una acción dirigida a la máquina (no a una sesión).
 // Devuelve (ok, mensaje para el usuario, data opcional para la app).
-func performMachineAction(action, path string, fresh bool, name, data string) (bool, string, any) {
+func performMachineAction(action, path string, fresh bool, name, data, agentKind string, gateway bool) (bool, string, any) {
 	switch action {
 	case "list_dir":
 		listing, err := listDir(path)
@@ -23,7 +22,7 @@ func performMachineAction(action, path string, fresh bool, name, data string) (b
 		}
 		return true, "", listing
 	case "new_session":
-		sess, err := newSession(path, fresh)
+		sess, err := newSession(path, fresh, agentKind, gateway)
 		if err != nil {
 			return false, err.Error(), nil
 		}
@@ -309,41 +308,21 @@ func listDir(path string) (*dirListing, error) {
 	return &dirListing{Path: path, Parent: parent, Home: home, Entries: entries}, nil
 }
 
-var (
-	claudeOnce sync.Once
-	claudeBin  string
-)
-
-// claudePath localiza el binario claude aunque el agente corra como servicio
-// con PATH mínimo (launchd/systemd no incluyen ~/.local/bin ni homebrew).
-func claudePath() string {
-	claudeOnce.Do(func() {
-		if p, err := exec.LookPath("claude"); err == nil {
-			claudeBin = p
-			return
-		}
-		home, _ := os.UserHomeDir()
-		for _, p := range []string{
-			filepath.Join(home, ".local", "bin", "claude"),
-			filepath.Join(home, ".claude", "local", "claude"),
-			"/opt/homebrew/bin/claude",
-			"/usr/local/bin/claude",
-			filepath.Join(home, "bin", "claude"),
-			filepath.Join(home, ".npm-global", "bin", "claude"),
-		} {
-			if _, err := os.Stat(p); err == nil {
-				claudeBin = p
-				return
-			}
-		}
-	})
-	return claudeBin
+// gatewayEnv: variables que apuntan un agente al gateway local de OmniRoute
+// (http://localhost:20128, compatible OpenAI + Anthropic en /v1). Se ponen
+// ambas porque cada CLI solo lee la que le corresponde; la que no usa se
+// ignora. No se valida que OmniRoute esté corriendo: si no lo está, el CLI
+// fallará al primer request (responsabilidad del usuario, no un bug de csm).
+var gatewayEnv = []string{
+	"ANTHROPIC_BASE_URL=http://localhost:20128",
+	"OPENAI_BASE_URL=http://localhost:20128/v1",
 }
 
-// newSession crea una sesión tmux monitorizada corriendo Claude en dir,
-// replicando el lanzador csm: mismo esquema de nombres y mismo wrapper sh -c
-// (para que Claude no sea hijo directo de tmux y la pausa SIGSTOP se sostenga).
-func newSession(dir string, fresh bool) (string, error) {
+// newSession crea una sesión tmux monitorizada corriendo el agente elegido
+// (claude/codex/opencode/cursor-agent, ver agents.go) en dir, replicando el
+// lanzador csm: mismo esquema de nombres y mismo wrapper sh -c (para que el
+// proceso no sea hijo directo de tmux y la pausa SIGSTOP se sostenga).
+func newSession(dir string, fresh bool, agentKind string, gateway bool) (string, error) {
 	if dir == "" {
 		return "", fmt.Errorf("falta la carpeta donde abrir la sesión")
 	}
@@ -352,9 +331,13 @@ func newSession(dir string, fresh bool) (string, error) {
 	if err != nil || !st.IsDir() {
 		return "", fmt.Errorf("%s no es una carpeta accesible", dir)
 	}
-	claude := claudePath()
-	if claude == "" {
-		return "", fmt.Errorf("no encuentro el binario 'claude' en esta máquina")
+	def, ok := findAgent(agentKind)
+	if !ok {
+		return "", fmt.Errorf("agente desconocido: %q", agentKind)
+	}
+	bin := agentBinPath(def)
+	if bin == "" {
+		return "", fmt.Errorf("no encuentro el binario '%s' en esta máquina", def.Bin)
 	}
 
 	base := sessionBase(dir)
@@ -370,9 +353,18 @@ func newSession(dir string, fresh bool) (string, error) {
 		name = fmt.Sprintf("%s-%d", base, i)
 	}
 
-	args := []string{claude}
-	if !fresh && hasPreviousConversation(dir) {
-		args = append(args, "--continue")
+	args := []string{bin}
+	if !fresh && def.ContinueFlag != "" {
+		// hasPreviousConversation solo sabe leer el almacenamiento de Claude
+		// Code (~/.claude/projects/…); para otros agentes con ContinueFlag
+		// (hoy: OpenCode) se pasa el flag siempre que no sea "fresh" y que el
+		// propio CLI decida si hay algo que retomar.
+		if def.Kind != "claude" || hasPreviousConversation(dir) {
+			args = append(args, def.ContinueFlag)
+		}
+	}
+	if gateway {
+		args = append(append([]string{"env"}, gatewayEnv...), args...)
 	}
 	tmuxArgs := append([]string{"new-session", "-d", "-s", name, "-c", dir,
 		"sh", "-c", `"$@"; :`, "csm-wrap"}, args...)

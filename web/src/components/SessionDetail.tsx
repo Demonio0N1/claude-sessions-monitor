@@ -7,6 +7,7 @@ import { toast } from '../toast';
 import StatusBadge from './StatusBadge';
 import Terminal from './Terminal';
 import FilesModal from './FilesModal';
+import { agentInfo } from '../agents';
 
 export default function SessionDetail({
   session,
@@ -54,7 +55,10 @@ export default function SessionDetail({
           ←
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-bold">{session.project}</h1>
+          <h1 className="flex items-center gap-1.5 truncate text-base font-bold">
+            {session.agent && <span title={agentInfo(session.agent).label}>{agentInfo(session.agent).icon}</span>}
+            <span className="truncate">{session.project}</span>
+          </h1>
           <p className="truncate text-xs text-zinc-400">
             {machine.info.os === 'darwin' ? '🍎' : machine.info.os === 'linux' ? '🐧' : '💻'}{' '}
             {machine.info.name}
@@ -111,7 +115,7 @@ export default function SessionDetail({
           {canStream ? (
             <>
               <div className="min-h-0 flex-1 p-2">
-                <Terminal globalId={session.globalId} />
+                <Terminal globalId={session.globalId} title={session.tmuxSession} />
               </div>
               <TerminalKeys globalId={session.globalId} />
               <PromptComposer

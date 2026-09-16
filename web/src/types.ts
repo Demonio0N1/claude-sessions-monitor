@@ -42,6 +42,7 @@ export interface SessionInfo {
   id: string;
   globalId: string;
   kind: 'tmux' | 'process';
+  agent?: string; // 'claude' | 'codex' | 'opencode' | 'cursor-agent' | undefined (legado/no detectado)
   tmuxSession?: string;
   pid: number;
   cwd: string;

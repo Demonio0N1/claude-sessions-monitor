@@ -103,6 +103,8 @@ app.get('/ws/app', { websocket: true }, (socket: WebSocket) => {
         msg.fresh,
         msg.name,
         msg.data,
+        msg.agent,
+        msg.gateway,
       );
   });
   socket.on('close', () => state.appDisconnected(socket));

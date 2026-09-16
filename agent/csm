@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
-# csm — lanzador de sesiones de Claude Code monitorizadas (dentro de tmux).
+# csm — lanzador de sesiones de agentes de IA monitorizadas (dentro de tmux).
 # La sesión sobrevive a cortes de SSH/terminal: al volver, usa 'csm attach'.
 # Uso:
-#   csm [args de claude...]   crea/reusa la sesión tmux de este directorio y abre Claude
-#                             (si hay conversación previa aquí, la retoma con --continue)
-#   csm --new [args...]       ignora la conversación previa y empieza de cero
-#   csm ls                    lista las sesiones csm
-#   csm attach [nombre]       vuelve a una sesión existente (sin nombre: entra
-#                             directo si solo hay una)
-#   csm help                  esta ayuda
+#   csm [args de claude...]        crea/reusa la sesión tmux de este directorio y abre Claude
+#                                   (si hay conversación previa aquí, la retoma con --continue)
+#   csm <agente> [args...]         igual, pero con otro CLI: codex | opencode | cursor-agent
+#                                   (sin detección de conversación previa, se lanzan limpios)
+#   csm --new [args...]            ignora la conversación previa y empieza de cero
+#   csm ls                         lista las sesiones csm
+#   csm attach [nombre]            vuelve a una sesión existente (sin nombre: entra
+#                                   directo si solo hay una)
+#   csm help                       esta ayuda
 set -euo pipefail
+
+AGENTS=(claude codex opencode cursor-agent)
+is_known_agent() {
+  local a="$1"
+  for x in "${AGENTS[@]}"; do [ "$x" = "$a" ] && return 0; done
+  return 1
+}
 
 die() { echo "csm: $*" >&2; exit 1; }
 
@@ -93,7 +102,16 @@ case "${1:-}" in
     ;;
 esac
 
-# csm [args...] → crea o reusa la sesión de este directorio
+# csm [<agente>] [args...] → crea o reusa la sesión de este directorio.
+# Si el primer argumento es un agente conocido, se consume aquí; si no, se
+# asume claude (comportamiento de siempre).
+agent=claude
+if [ $# -gt 0 ] && is_known_agent "${1:-}"; then
+  agent="$1"
+  shift
+fi
+command -v "$agent" >/dev/null 2>&1 || die "no encuentro el binario '$agent' en el PATH"
+
 new_flag=0
 claude_args=()
 for a in "$@"; do
@@ -118,15 +136,18 @@ while tmux has-session -t "=$name" 2>/dev/null; do
   i=$((i + 1))
 done
 
-cmd=(claude)
-if [ "$new_flag" -eq 0 ] && has_previous_conversation; then
+cmd=("$agent")
+# La detección de conversación previa (~/.claude/projects/…) es específica de
+# Claude Code; los demás agentes se lanzan siempre limpios en este script
+# (el "+ Nueva sesión" de la app sí sabe retomar OpenCode, ver README).
+if [ "$agent" = "claude" ] && [ "$new_flag" -eq 0 ] && has_previous_conversation; then
   cmd=(claude --continue)
   echo "Conversación previa detectada: se retoma con --continue (usa 'csm --new' para empezar de cero)."
 fi
 
 echo "Creando sesión '$name' en $PWD ..."
-# Claude va envuelto en sh -c para NO ser hijo directo de tmux: si fuera hijo
-# directo, tmux le enviaría SIGCONT automáticamente y la pausa (SIGSTOP) del
-# monitor no se sostendría.
+# El agente va envuelto en sh -c para NO ser hijo directo de tmux: si fuera
+# hijo directo, tmux le enviaría SIGCONT automáticamente y la pausa (SIGSTOP)
+# del monitor no se sostendría.
 start_detached tmux new-session -d -s "$name" -c "$PWD" sh -c '"$@"; :' csm-wrap "${cmd[@]}" ${claude_args+"${claude_args[@]}"}
 attach_to "$name"

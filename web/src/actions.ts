@@ -36,7 +36,7 @@ export function runAction(sessionId: string, action: ActionKind, text?: string):
 export function runMachineAction(
   machineId: string,
   action: MachineActionKind,
-  opts: { path?: string; fresh?: boolean; name?: string; data?: string } = {},
+  opts: { path?: string; fresh?: boolean; name?: string; data?: string; agent?: string; gateway?: boolean } = {},
 ): Promise<ActionResult> {
   const requestId = newRequestId();
   // subir/bajar un archivo grande por la tailnet puede tardar: margen mayor
