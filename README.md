@@ -212,7 +212,13 @@ pueden pausar (la app lo avisa); basta terminarlas y relanzarlas con `csm`.
   en su carpeta): explorador completo de la máquina — carpetas y archivos con
   tamaño, subir fotos de la galería o archivos (varios, hasta 30 MB c/u, sin
   pisar existentes), descargar al teléfono (hasta 50 MB), renombrar, eliminar
-  (carpetas solo vacías) y crear carpetas.
+  (carpetas solo vacías) y crear carpetas. En macOS, sin permisos navegar pide
+  autorización carpeta por carpeta (Escritorio, Documentos, Descargas...); dale
+  a **csm-agent** el permiso de **Acceso total al disco** una sola vez en
+  Ajustes del Sistema → Privacidad y seguridad → **Acceso total al disco**
+  (Cmd+Shift+G → `~/.local/bin/csm-agent` para encontrarlo) y reinicia el
+  servicio del agente. Igual que con la captura de pantalla, hay que
+  reactivarlo si el binario del agente se reinstala/actualiza.
 - **🖥 Terminal aquí / ✳️ Claude aquí** (pie del explorador): abre en la carpeta
   actual una sesión de Claude o un **terminal libre** (tmux `csm-sh-*` con tu
   shell). Los terminales aparecen como sesiones "Terminal · carpeta" con
