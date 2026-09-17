@@ -3,12 +3,13 @@ import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import cors from '@fastify/cors';
+import type { FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { BIN_DIR, PORT, TOKEN, WEB_DIST } from './config.js';
 import * as state from './state.js';
 import * as db from './db.js';
 import { installScript } from './install-sh.js';
-import { discoverHubs } from './discovery.js';
+import { discoverHubs, reportHubs } from './discovery.js';
 import type { AgentMsg, AppMsg } from './types.js';
 
 const app = Fastify({ logger: { level: 'warn' } });
@@ -28,7 +29,7 @@ await app.register(websocket, {
 });
 
 // ---- WebSocket: agentes ----
-app.get('/ws/agent', { websocket: true }, (socket: WebSocket) => {
+app.get('/ws/agent', { websocket: true }, (socket: WebSocket, req: FastifyRequest) => {
   let machineId: string | null = null;
   let lastMsg = Date.now();
 
@@ -44,6 +45,8 @@ app.get('/ws/agent', { websocket: true }, (socket: WebSocket) => {
       if (msg.type === 'hello' && msg.token === TOKEN && msg.machine?.id) {
         machineId = msg.machine.id;
         state.agentConnected(msg.machine, socket);
+        // los hubs a los que reporta este agente: así este hub descubre a los demás
+        reportHubs(machineId, msg.hubs ?? [], req.ip);
         socket.send(JSON.stringify({ type: 'hello_ok' }));
       } else {
         socket.send(JSON.stringify({ type: 'error', message: 'token inválido' }));

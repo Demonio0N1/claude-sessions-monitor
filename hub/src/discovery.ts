@@ -23,10 +23,49 @@ interface TsStatus {
   Peer?: Record<string, TsNode>;
 }
 
-// La app de Tailscale en macOS (App Store o standalone) no ofrece un CLI fiable
-// fuera de una sesión interactiva: bajo launchd responde "The Tailscale GUI
-// failed to start" con texto no-JSON. Su API local por HTTP sí funciona siempre;
-// el puerto y el token van en el nombre de un archivo sameuserproof-<puerto>-<token>.
+// ---- fuente 1: los agentes ----
+// Cada agente manda en su hello la lista de hubs a los que reporta. Es la
+// fuente que funciona en cualquier máquina sin depender de Tailscale ni de
+// permisos: si un agente reporta a este hub y a otro, este hub conoce al otro.
+
+/** machineId -> URLs de hub reportadas por ese agente (host loopback ya reescrito) */
+const agentHubs = new Map<string, string[]>();
+
+function stripMapped(ip: string | undefined): string {
+  return (ip ?? '').replace(/^::ffff:/i, '');
+}
+
+function isLoopbackHost(h: string): boolean {
+  return h === '127.0.0.1' || h === 'localhost' || h === '0.0.0.0' || h === '::1' || h === '[::1]';
+}
+
+export function reportHubs(machineId: string, urls: string[], remoteIp: string | undefined): void {
+  const agentIp = stripMapped(remoteIp);
+  const out: string[] = [];
+  for (const raw of urls) {
+    try {
+      const u = new URL(raw);
+      if (isLoopbackHost(u.hostname)) {
+        // "127.0.0.1" visto desde el agente es SU máquina: si el agente es
+        // remoto, ese hub vive en la IP desde la que se conecta; si es local,
+        // es este mismo hub y no aporta nada.
+        if (!agentIp || isLoopbackHost(agentIp)) continue;
+        u.hostname = agentIp;
+      }
+      out.push(`${u.protocol}//${u.host}`.toLowerCase());
+    } catch {
+      /* URL inválida: se ignora */
+    }
+  }
+  agentHubs.set(machineId, out);
+  cache = null;
+}
+
+// ---- fuente 2: Tailscale (si está disponible desde el proceso del hub) ----
+// La app de Tailscale en macOS no ofrece un CLI fiable fuera de una sesión
+// interactiva y su API local exige leer un group container protegido por TCC,
+// así que aquí puede no haber nada; en Linux el CLI funciona.
+
 const MAC_PROOF_DIRS = [
   path.join(os.homedir(), 'Library', 'Group Containers', 'W5364U7YZB.group.io.tailscale.ipn.macos'),
   '/Library/Tailscale',
@@ -94,9 +133,31 @@ async function tsStatus(): Promise<TsStatus | null> {
   return tsStatusCli();
 }
 
-function ipv4(n: TsNode | undefined): string | undefined {
-  return n?.TailscaleIPs?.find((ip) => ip.startsWith('100.'));
+// ---- identidad propia ----
+
+function isTailscaleIPv4(ip: string): boolean {
+  const m = /^100\.(\d+)\.\d+\.\d+$/.exec(ip);
+  return !!m && Number(m[1]) >= 64 && Number(m[1]) <= 127;
 }
+
+function ipv4(n: TsNode | undefined): string | undefined {
+  return n?.TailscaleIPs?.find(isTailscaleIPv4);
+}
+
+/** IPs de esta máquina (para no listarse a sí misma como "otro hub"). */
+function ownHosts(): Set<string> {
+  const s = new Set(['127.0.0.1', 'localhost', '0.0.0.0', '::1']);
+  for (const list of Object.values(os.networkInterfaces())) for (const i of list ?? []) s.add(i.address);
+  return s;
+}
+
+function ownTailscaleIp(): string | undefined {
+  for (const list of Object.values(os.networkInterfaces()))
+    for (const i of list ?? []) if (i.family === 'IPv4' && isTailscaleIPv4(i.address)) return i.address;
+  return undefined;
+}
+
+// ---- sondeo ----
 
 async function isHub(url: string): Promise<boolean> {
   try {
@@ -113,10 +174,9 @@ let cache: { at: number; hubs: HubEntry[] } | null = null;
 let inflight: Promise<HubEntry[]> | null = null;
 
 /**
- * Paneles activos en la tailnet: este hub primero y luego cada peer del MISMO
- * usuario (la tailnet puede estar compartida con nodos ajenos) que esté online,
- * tenga IPv4 y responda como hub en el mismo puerto. Nunca lanza: sin tailscale
- * devuelve solo este hub.
+ * Paneles activos: este hub primero, y después todo candidato (pares de
+ * Tailscale del mismo usuario + hubs reportados por los agentes) que responda
+ * como hub. Nunca lanza: sin fuentes devuelve solo este hub.
  */
 export function discoverHubs(selfFallbackUrl: string): Promise<HubEntry[]> {
   if (cache && Date.now() - cache.at < 30_000) return Promise.resolve(cache.hubs);
@@ -124,22 +184,36 @@ export function discoverHubs(selfFallbackUrl: string): Promise<HubEntry[]> {
   inflight = (async () => {
     const status = await tsStatus();
     const self = status?.Self;
-    const selfIp = ipv4(self);
-    const hubs: HubEntry[] = [
-      { name: self?.HostName ?? 'este hub', url: selfIp ? `http://${selfIp}:${PORT}` : selfFallbackUrl, self: true },
-    ];
-    const peers = Object.values(status?.Peer ?? {}).filter(
-      (p) =>
-        p.Online &&
-        ipv4(p) &&
-        (p.OS === 'macOS' || p.OS === 'linux') &&
-        (self?.UserID === undefined || p.UserID === self.UserID),
-    );
+    const selfIp = ipv4(self) ?? ownTailscaleIp();
+    const selfUrl = selfIp ? `http://${selfIp}:${PORT}` : selfFallbackUrl;
+    const selfName = self?.HostName ?? os.hostname().replace(/\.local$/, '');
+    const hubs: HubEntry[] = [{ name: selfName, url: selfUrl, self: true }];
+
+    const names = new Map<string, string>();
+    const candidates = new Set<string>();
+    for (const p of Object.values(status?.Peer ?? {})) {
+      const ip = ipv4(p);
+      if (!p.Online || !ip || (p.OS !== 'macOS' && p.OS !== 'linux')) continue;
+      if (self?.UserID !== undefined && p.UserID !== self.UserID) continue;
+      const url = `http://${ip}:${PORT}`;
+      candidates.add(url);
+      if (p.HostName) names.set(url, p.HostName);
+    }
+    const mine = ownHosts();
+    for (const urls of agentHubs.values()) {
+      for (const url of urls) {
+        try {
+          if (mine.has(new URL(url).hostname)) continue;
+        } catch {
+          continue;
+        }
+        candidates.add(url);
+      }
+    }
+    candidates.delete(selfUrl);
+
     const probed = await Promise.allSettled(
-      peers.map(async (p) => {
-        const url = `http://${ipv4(p)}:${PORT}`;
-        return (await isHub(url)) ? { name: p.HostName ?? url, url, self: false } : null;
-      }),
+      [...candidates].map(async (url) => ((await isHub(url)) ? { name: names.get(url) ?? '', url, self: false } : null)),
     );
     for (const r of probed) if (r.status === 'fulfilled' && r.value) hubs.push(r.value);
     cache = { at: Date.now(), hubs };

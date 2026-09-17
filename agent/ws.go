@@ -14,6 +14,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// URLs de los hubs configurados, enviadas en cada hello (ver runAgent).
+var reportedHubs []string
+
 type machineInfo struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -39,6 +42,12 @@ func runAgent() {
 	// Una conexión persistente por cada hub configurado: todos los paneles ven
 	// esta máquina, y si un hub se cae los demás siguen funcionando.
 	hubs := cfg.hubEntries()
+	// Cada hub recibe en el hello la lista de hubs a los que reporta este agente:
+	// así los hubs se descubren entre sí a través de los agentes, sin depender de
+	// Tailscale en la máquina del hub.
+	for _, h := range hubs {
+		reportedHubs = append(reportedHubs, strings.TrimSuffix(h.URL, "/"))
+	}
 	started := 0
 	var wg sync.WaitGroup
 	for _, h := range hubs {
@@ -113,7 +122,7 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 		data, _ := json.Marshal(v)
 		return conn.WriteMessage(websocket.TextMessage, data) == nil
 	}
-	if !send(map[string]any{"type": "hello", "token": token, "machine": machine}) {
+	if !send(map[string]any{"type": "hello", "token": token, "machine": machine, "hubs": reportedHubs}) {
 		return false
 	}
 
