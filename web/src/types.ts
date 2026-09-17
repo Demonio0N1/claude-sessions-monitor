@@ -20,7 +20,8 @@ export type MachineActionKind =
   | 'get_file'
   | 'delete_path'
   | 'rename_path'
-  | 'mkdir';
+  | 'mkdir'
+  | 'open_privacy';
 
 export interface DirEntry {
   name: string;
@@ -53,12 +54,19 @@ export interface SessionInfo {
   lastEventAt?: number;
 }
 
+/** Permisos de macOS que reporta el agente. */
+export interface MachinePerms {
+  fullDisk?: boolean;
+  signed?: boolean;
+}
+
 export interface MachineInfo {
   id: string;
   name: string;
   os: string;
   arch: string;
   version: string;
+  perms?: MachinePerms;
 }
 
 export interface MachineState {

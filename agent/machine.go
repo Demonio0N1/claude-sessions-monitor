@@ -33,6 +33,12 @@ func performMachineAction(action, path string, fresh bool, name, data, agentKind
 			return false, err.Error(), nil
 		}
 		return true, "", map[string]any{"image": img}
+	case "open_privacy":
+		msg, err := openPrivacySettings()
+		if err != nil {
+			return false, err.Error(), nil
+		}
+		return true, msg, nil
 	case "put_file":
 		dest, size, err := putFile(path, name, data)
 		if err != nil {

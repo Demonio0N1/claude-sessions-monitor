@@ -63,6 +63,9 @@ app.get('/ws/agent', { websocket: true }, (socket: WebSocket, req: FastifyReques
       case 'sessions':
         state.updateSessions(machineId, msg.sessions ?? []);
         break;
+      case 'perms':
+        state.updatePerms(machineId, msg.perms);
+        break;
       case 'output':
         state.onOutput(machineId, msg.sessionId, msg.data, !!msg.full);
         break;

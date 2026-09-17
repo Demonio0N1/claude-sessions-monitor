@@ -149,6 +149,7 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 	lastOutHash := map[string]uint64{}
 	var lastSessionsJSON string
 	lastSessionsSent := time.Time{}
+	var lastPermsJSON string
 
 	scanTick := time.NewTicker(3 * time.Second)
 	capTick := time.NewTicker(1 * time.Second)
@@ -162,6 +163,14 @@ func connectOnce(wsURL, token string, machine machineInfo, hs *hookState) bool {
 		}
 		for _, s := range sessions {
 			sessById[s.ID] = s
+		}
+		// permisos de macOS (Acceso total al disco): se informan al conectar y
+		// cada vez que cambian, para que el panel avise y deje de avisar
+		if pj, _ := json.Marshal(currentPerms()); string(pj) != lastPermsJSON {
+			lastPermsJSON = string(pj)
+			if !send(map[string]any{"type": "perms", "perms": json.RawMessage(pj)}) {
+				return false
+			}
 		}
 		js, _ := json.Marshal(sessions)
 		if string(js) != lastSessionsJSON || time.Since(lastSessionsSent) > 15*time.Second {

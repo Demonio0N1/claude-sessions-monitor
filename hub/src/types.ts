@@ -20,7 +20,8 @@ export type MachineActionKind =
   | 'get_file'
   | 'delete_path'
   | 'rename_path'
-  | 'mkdir';
+  | 'mkdir'
+  | 'open_privacy';
 
 export interface DirEntry {
   name: string;
@@ -53,12 +54,19 @@ export interface SessionInfo {
   lastEventAt?: number;
 }
 
+/** Permisos de macOS que reporta el agente (ver agent/perms.go). */
+export interface MachinePerms {
+  fullDisk?: boolean;
+  signed?: boolean;
+}
+
 export interface MachineInfo {
   id: string;
   name: string;
   os: string;
   arch: string;
   version: string;
+  perms?: MachinePerms;
 }
 
 export interface MachineState {
@@ -78,6 +86,7 @@ export interface HookEvent {
 export type AgentMsg =
   | { type: 'hello'; token: string; machine: MachineInfo; hubs?: (string | { url: string; token?: string })[] }
   | { type: 'sessions'; sessions: SessionInfo[] }
+  | { type: 'perms'; perms: MachinePerms }
   | { type: 'output'; sessionId: string; data: string; full: boolean }
   | { type: 'event'; sessionId?: string; cwd?: string; event: HookEvent }
   | { type: 'action_result'; requestId: string; ok: boolean; message?: string; data?: unknown }

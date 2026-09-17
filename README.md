@@ -260,12 +260,17 @@ pueden pausar (la app lo avisa); basta terminarlas y relanzarlas con `csm`.
   tamaño, subir fotos de la galería o archivos (varios, hasta 30 MB c/u, sin
   pisar existentes), descargar al teléfono (hasta 50 MB), renombrar, eliminar
   (carpetas solo vacías) y crear carpetas. En macOS, sin permisos navegar pide
-  autorización carpeta por carpeta (Escritorio, Documentos, Descargas...); dale
-  a **csm-agent** el permiso de **Acceso total al disco** una sola vez en
-  Ajustes del Sistema → Privacidad y seguridad → **Acceso total al disco**
-  (Cmd+Shift+G → `~/.local/bin/csm-agent` para encontrarlo) y reinicia el
-  servicio del agente. Igual que con la captura de pantalla, hay que
-  reactivarlo si el binario del agente se reinstala/actualiza.
+  autorización carpeta por carpeta (Escritorio, Documentos, Descargas...) y los
+  avisos salen en la Mac: dale a **csm-agent** el permiso de **Acceso total al
+  disco** una sola vez. El instalador lo comprueba (preguntándole al propio
+  servicio), abre Ajustes del Sistema → Privacidad y seguridad → **Acceso total
+  al disco** y deja el binario a la vista en el Finder para arrastrarlo; el
+  panel también lo avisa en la tarjeta de esa Mac con un botón «Abrir Ajustes en
+  la Mac». Además, en macOS el instalador **firma** `csm-agent` con un
+  certificado local (creado una vez, en un llavero propio en `~/.config/csm/`)
+  para que macOS reconozca al agente por su firma y no por el hash del binario:
+  así Acceso total al disco y Grabación de pantalla se conceden una sola vez y
+  sobreviven a las actualizaciones.
 - **🖥 Terminal aquí / ✳️ Claude aquí** (pie del explorador): abre en la carpeta
   actual una sesión de Claude o un **terminal libre** (tmux `csm-sh-*` con tu
   shell). Los terminales aparecen como sesiones "Terminal · carpeta" con

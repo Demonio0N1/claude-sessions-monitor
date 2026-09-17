@@ -5,6 +5,7 @@ import type {
   HubToApp,
   MachineActionKind,
   MachineInfo,
+  MachinePerms,
   MachineState,
   SessionInfo,
 } from './types.js';
@@ -93,6 +94,13 @@ export function forgetMachine(machineId: string): boolean {
 export function touch(machineId: string): void {
   const m = machines.get(machineId);
   if (m) m.lastSeen = Date.now();
+}
+
+export function updatePerms(machineId: string, perms: MachinePerms): void {
+  const m = machines.get(machineId);
+  if (!m) return;
+  m.info = { ...m.info, perms };
+  broadcast();
 }
 
 export function updateSessions(machineId: string, sessions: SessionInfo[]): void {

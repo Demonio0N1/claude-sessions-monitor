@@ -6,6 +6,8 @@ import NewSessionModal from './NewSessionModal';
 import ScreenshotModal from './ScreenshotModal';
 import FilesModal from './FilesModal';
 import { hubs } from '../hubs/store';
+import { runMachineAction } from '../actions';
+import { toast } from '../toast';
 
 const OS_ICON: Record<string, string> = { darwin: '🍎', linux: '🐧', windows: '🪟' };
 
@@ -61,6 +63,28 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
           </button>
         )}
       </div>
+
+      {online && info.os === 'darwin' && info.perms?.fullDisk === false && (
+        <div className="mb-3 mt-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-5 text-amber-100">
+          <b>⚠️ Falta un permiso en esta Mac.</b> El agente no tiene <b>Acceso total al disco</b>: navegar
+          por sus archivos desde aquí pedirá permiso carpeta por carpeta (y los avisos salen en la Mac).
+          Actívalo una vez en Ajustes del Sistema → Privacidad y seguridad → Acceso total al disco → csm-agent.
+          {info.perms.signed === false && (
+            <> Reinstala el agente con el instalador nuevo para que el permiso se conserve al actualizar.</>
+          )}
+          <div className="mt-2">
+            <button
+              onClick={async () => {
+                const r = await runMachineAction(info.id, 'open_privacy');
+                toast(r.message ?? (r.ok ? 'listo' : 'error'), r.ok ? 'ok' : 'error');
+              }}
+              className={`${btn} border-amber-500/40 bg-amber-500/10 text-amber-200`}
+            >
+              Abrir Ajustes en la Mac
+            </button>
+          </div>
+        </div>
+      )}
 
       {online && (
         <div className="mb-3 mt-2 flex flex-wrap items-center gap-1.5">

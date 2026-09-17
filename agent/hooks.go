@@ -83,6 +83,12 @@ func (hs *hookState) serve(port int) {
 	mux.HandleFunc("/ping", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok"))
 	})
+	// Permisos vistos desde el propio servicio (install.sh/setup.sh los consultan:
+	// desde una terminal el resultado sería el de la terminal, no el del agente).
+	mux.HandleFunc("/perms", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(currentPerms())
+	})
 	mux.HandleFunc("/hook", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 256*1024))
 		var p hookPayload

@@ -25,6 +25,31 @@ log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m    AVISO: %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
+# macOS: el instalador del agente abre Ajustes si falta "Acceso total al disco";
+# aquí (terminal interactiva) esperamos a que lo actives y lo comprobamos de
+# nuevo preguntándole al propio servicio (desde la terminal no vale: mediría
+# los permisos de la terminal, no los del agente).
+mac_permisos() {
+  [ "$OS" = "Darwin" ] || return 0
+  hookport=$(grep -o '"hookPort": *[0-9]*' "$HOME/.config/csm/agent.json" 2>/dev/null | grep -o '[0-9]*$' || true)
+  i=0
+  while [ "$i" -lt 3 ]; do
+    perms=$(curl -s -m 2 "http://127.0.0.1:${hookport:-8787}/perms" 2>/dev/null || true)
+    case "$perms" in
+      *'"fullDisk":true'*) log "Acceso total al disco: activado ✅"; return 0 ;;
+      *'"fullDisk":false'*) ;;
+      *) return 0 ;;
+    esac
+    [ -t 0 ] || return 0
+    i=$((i + 1))
+    printf "    Activa csm-agent en Acceso total al disco y presiona Enter para comprobar (s = saltar): "
+    read -r ans || return 0
+    [ "$ans" = "s" ] && return 0
+    sleep 1
+  done
+  warn "Acceso total al disco sigue desactivado: navegar por archivos desde el teléfono pedirá permiso por carpeta"
+}
+
 SUDO=""
 [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
 
@@ -115,6 +140,7 @@ if [ -n "$JOIN_HUB" ]; then
   case "$JOIN_TOKEN" in *t=*) JOIN_TOKEN=$(printf '%s' "$JOIN_TOKEN" | sed 's/.*[#?&]t=\([0-9A-Za-z]*\).*/\1/') ;; esac
   [ -n "$JOIN_TOKEN" ] || die "hace falta el token del hub para instalar el agente"
   curl -fsSL "${JOIN_HUB%/}/install.sh?t=$JOIN_TOKEN" | sh
+  mac_permisos
   log "Listo ✅ — esta máquina ya reporta a $JOIN_HUB"
   echo "  Panel:    $JOIN_HUB/#t=$JOIN_TOKEN  (ábrelo una vez desde el celular vía Tailscale)"
   echo "  Sesiones: cd <proyecto> && csm   (agrega ~/.local/bin a tu PATH si hace falta)"
@@ -209,6 +235,7 @@ CSM_PORT="$HUB_PORT" "$REPO_DIR/scripts/hub-service.sh" install
 log "Instalando el agente en esta máquina"
 TOKEN=$(cat "$HOME/.local/share/csm-hub/data/token.txt" 2>/dev/null || die "no encuentro el token del hub")
 curl -fsSL "http://127.0.0.1:$HUB_PORT/install.sh?t=$TOKEN" | sh
+mac_permisos
 
 # ---------- 5. resumen ----------
 TS_IP=$([ -n "$TS_BIN" ] && "$TS_BIN" ip -4 2>/dev/null | head -1 || true)
