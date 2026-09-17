@@ -156,6 +156,50 @@ controlando todo lo que esté encendido.
 
 Para dejar de reportar a un hub: `csm-agent remove-hub http://<ip>:4000`.
 
+### App Android: todas las máquinas en un solo panel, sin escribir direcciones
+
+Además de la PWA, hay una **app Android** (APK, Capacitor sobre la misma web) que
+se conecta a **todos** los hubs de tu tailnet a la vez y muestra una sola lista
+de máquinas, con cambio automático si un hub se apaga.
+
+1. En el teléfono (con Tailscale activo) abre cualquier panel en Chrome,
+   `http://<ip-tailscale>:4000`, y toca **Descargar APK** (el hub lo sirve en
+   `/bin/csm.apk`). Android pide permitir "instalar apps de esta fuente" una vez.
+2. Vuelve al panel y toca **Abrir en la app**: la app arranca ya conectada a ese
+   hub (deep link `csm://hub?url=…`). Alternativa: pegar la URL en la pantalla
+   inicial de la app.
+3. Desde ahí es automático: la app le pregunta a cada hub qué otras máquinas
+   tuyas tienen panel (`GET /api/hubs`, que corre `tailscale status` en la
+   máquina del hub — solo lista pares **de tu mismo usuario** de Tailscale, con
+   IPv4, online y que respondan como hub en el mismo puerto) y se conecta a
+   todos. El botón de estado (arriba a la derecha) abre la hoja de **Hubs**:
+   estado por hub, agregar por URL, quitar, "Buscar paneles en la tailnet".
+
+La PWA en el navegador también fusiona lo que ven los demás hubs (sin guardar
+nada), así que en `http://<hub-A>:4000` ves también las máquinas de B.
+
+**Compilar el APK** (solo hace falta en una máquina; el resto lo descarga del
+panel): JDK 21 + Android SDK (`platform-tools`, `platforms;android-36`,
+`build-tools;36.0.0`) — se pueden instalar sin sudo bajo `~/.local/jdk` y
+`~/Android/Sdk` con las command-line tools de Android. Luego:
+
+```bash
+make apk            # build web + cap sync + gradle assembleDebug → hub/public/bin/csm.apk
+./scripts/hub-service.sh install   # el hub empieza a servir /bin/csm.apk
+```
+
+Para que otro hub también sirva el APK, cópialo a su `hub/public/bin/csm.apk`
+(por ejemplo `curl -fsSL http://<hub-que-lo-tiene>:4000/bin/csm.apk -o
+hub/public/bin/csm.apk`) y reinstala su servicio. El APK va firmado con el
+keystore de depuración de la máquina que compila (`~/.android/debug.keystore`):
+compila siempre en la misma máquina (o copia ese archivo) para que las
+actualizaciones se instalen encima sin desinstalar.
+
+Limitaciones de la app: dentro del WebView de Android no funciona **descargar
+archivos al teléfono** desde el explorador (subir fotos/archivos, capturas de
+pantalla, terminal y prompts sí); el descubrimiento solo prueba el mismo puerto
+del hub que responde.
+
 ### Lanzar sesiones monitorizadas: `csm`
 
 ```bash

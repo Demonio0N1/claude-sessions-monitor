@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { PORT } from './config.js';
 
 export interface HubEntry {
@@ -21,35 +23,75 @@ interface TsStatus {
   Peer?: Record<string, TsNode>;
 }
 
-const TS_CANDIDATES = [
-  '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
-  '/usr/bin/tailscale',
-  '/usr/local/bin/tailscale',
+// La app de Tailscale en macOS (App Store o standalone) no ofrece un CLI fiable
+// fuera de una sesión interactiva: bajo launchd responde "The Tailscale GUI
+// failed to start" con texto no-JSON. Su API local por HTTP sí funciona siempre;
+// el puerto y el token van en el nombre de un archivo sameuserproof-<puerto>-<token>.
+const MAC_PROOF_DIRS = [
+  path.join(os.homedir(), 'Library', 'Group Containers', 'W5364U7YZB.group.io.tailscale.ipn.macos'),
+  '/Library/Tailscale',
 ];
 
-let tsBin: string | undefined;
+const TS_CLI_CANDIDATES = [
+  '/usr/bin/tailscale',
+  '/usr/local/bin/tailscale',
+  '/opt/homebrew/bin/tailscale',
+  '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+];
 
-function tailscaleBin(): string {
-  if (tsBin === undefined) tsBin = TS_CANDIDATES.find((p) => fs.existsSync(p)) ?? 'tailscale';
-  return tsBin;
+function macLocalApi(): { port: number; token: string } | null {
+  if (process.platform !== 'darwin') return null;
+  for (const dir of MAC_PROOF_DIRS) {
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const n of names) {
+      const m = /^sameuserproof-(\d+)-([0-9a-f]+)$/i.exec(n);
+      if (m) return { port: Number(m[1]), token: m[2] };
+    }
+  }
+  return null;
 }
 
-function tsStatus(): Promise<TsStatus | null> {
+async function tsStatusLocalApi(api: { port: number; token: string }): Promise<TsStatus | null> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${api.port}/localapi/v0/status`, {
+      headers: { Authorization: 'Basic ' + Buffer.from(`:${api.token}`).toString('base64') },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!r.ok) return null;
+    return (await r.json()) as TsStatus;
+  } catch {
+    return null;
+  }
+}
+
+let tsCli: string | undefined;
+
+function tsStatusCli(): Promise<TsStatus | null> {
+  if (tsCli === undefined) tsCli = TS_CLI_CANDIDATES.find((p) => fs.existsSync(p)) ?? 'tailscale';
   return new Promise((resolve) => {
-    execFile(
-      tailscaleBin(),
-      ['status', '--json'],
-      { timeout: 3000, maxBuffer: 8 * 1024 * 1024 },
-      (err, stdout) => {
-        if (err) return resolve(null);
-        try {
-          resolve(JSON.parse(stdout) as TsStatus);
-        } catch {
-          resolve(null);
-        }
-      },
-    );
+    execFile(tsCli!, ['status', '--json'], { timeout: 3000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return resolve(null);
+      try {
+        resolve(JSON.parse(stdout) as TsStatus);
+      } catch {
+        resolve(null);
+      }
+    });
   });
+}
+
+async function tsStatus(): Promise<TsStatus | null> {
+  const api = macLocalApi();
+  if (api) {
+    const s = await tsStatusLocalApi(api);
+    if (s) return s;
+  }
+  return tsStatusCli();
 }
 
 function ipv4(n: TsNode | undefined): string | undefined {
