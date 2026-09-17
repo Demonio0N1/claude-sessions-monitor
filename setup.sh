@@ -50,7 +50,7 @@ if [ -z "${CSM_JOIN_HUB+x}" ] && [ -t 0 ]; then
       > /tmp/csm-setup-candidates.$$
     while IFS='|' read -r ip name; do
       [ -z "$ip" ] && continue
-      curl -fsS -m 1 "http://$ip:$HUB_PORT/api/state" >/dev/null 2>&1 \
+      curl -fsS -m 1 "http://$ip:$HUB_PORT/api/ping" >/dev/null 2>&1 \
         && printf '%s|%s\n' "$ip" "$name" >> "$FOUND_LIST"
     done < /tmp/csm-setup-candidates.$$
     rm -f /tmp/csm-setup-candidates.$$
@@ -105,9 +105,18 @@ if [ -n "$JOIN_HUB" ]; then
         ;;
     esac
   fi
-  curl -fsSL "${JOIN_HUB%/}/install.sh" | sh
+  # El instalador exige el token de ese hub (lo muestra ./scripts/hub-service.sh
+  # status en esa máquina, o va en su enlace del panel como #t=...).
+  JOIN_TOKEN="${CSM_JOIN_TOKEN-}"
+  if [ -z "$JOIN_TOKEN" ] && [ -t 0 ]; then
+    printf "  Token de ese hub (o pega su enlace del panel con #t=...): "
+    read -r JOIN_TOKEN || true
+  fi
+  case "$JOIN_TOKEN" in *t=*) JOIN_TOKEN=$(printf '%s' "$JOIN_TOKEN" | sed 's/.*[#?&]t=\([0-9A-Za-z]*\).*/\1/') ;; esac
+  [ -n "$JOIN_TOKEN" ] || die "hace falta el token del hub para instalar el agente"
+  curl -fsSL "${JOIN_HUB%/}/install.sh?t=$JOIN_TOKEN" | sh
   log "Listo ✅ — esta máquina ya reporta a $JOIN_HUB"
-  echo "  Panel:    $JOIN_HUB  (ábrelo desde el celular vía Tailscale, ahí verás esta máquina)"
+  echo "  Panel:    $JOIN_HUB/#t=$JOIN_TOKEN  (ábrelo una vez desde el celular vía Tailscale)"
   echo "  Sesiones: cd <proyecto> && csm   (agrega ~/.local/bin a tu PATH si hace falta)"
   exit 0
 fi
@@ -198,15 +207,17 @@ CSM_PORT="$HUB_PORT" "$REPO_DIR/scripts/hub-service.sh" install
 
 # ---------- 4. agente local ----------
 log "Instalando el agente en esta máquina"
-curl -fsSL "http://127.0.0.1:$HUB_PORT/install.sh" | sh
+TOKEN=$(cat "$HOME/.local/share/csm-hub/data/token.txt" 2>/dev/null || die "no encuentro el token del hub")
+curl -fsSL "http://127.0.0.1:$HUB_PORT/install.sh?t=$TOKEN" | sh
 
 # ---------- 5. resumen ----------
-TOKEN=$(cat "$HOME/.local/share/csm-hub/data/token.txt" 2>/dev/null || echo "?")
-TS_IP=$(command -v tailscale >/dev/null 2>&1 && tailscale ip -4 2>/dev/null | head -1 || true)
+TS_IP=$([ -n "$TS_BIN" ] && "$TS_BIN" ip -4 2>/dev/null | head -1 || true)
 log "Listo ✅"
-echo "  Panel:          http://${TS_IP:-<ip-de-esta-máquina>}:$HUB_PORT  (ábrelo desde el celular vía Tailscale)"
-echo "  Token agentes:  $TOKEN"
-echo "  Otras máquinas: curl -fsSL http://${TS_IP:-<ip>}:$HUB_PORT/install.sh | sh"
+echo "  Panel:          http://${TS_IP:-<ip-de-esta-máquina>}:$HUB_PORT/#t=$TOKEN"
+echo "                  (ábrelo UNA vez en cada dispositivo: el enlace lleva el token y la app lo guarda)"
+echo "  Token del hub:  $TOKEN   (agentes y app)"
+echo "  Otras máquinas: curl -fsSL \"http://${TS_IP:-<ip>}:$HUB_PORT/install.sh?t=$TOKEN\" | sh"
+echo "                  (o ./setup.sh allí y elegir este panel cuando pregunte)"
 echo "  Sesiones:       cd <proyecto> && csm   (agrega ~/.local/bin a tu PATH si hace falta)"
 echo "  Servidor:       ./scripts/hub-service.sh status|start|stop|logs"
 [ -z "$TS_IP" ] && warn "tailscale no detectado: instala https://tailscale.com para acceder desde el celular"

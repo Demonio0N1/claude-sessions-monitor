@@ -59,6 +59,16 @@ export default function App() {
       </>
     );
 
+  // la PWA de un hub que aún no tiene su token en este dispositivo
+  const origin = hubList.find((h) => h.source === 'origin');
+  if (ready && !isNative() && origin?.status === 'unauthorized')
+    return (
+      <>
+        <HubSetup fixedUrl={origin.url} />
+        <ToastHost />
+      </>
+    );
+
   const totalSessions = machines.reduce((n, m) => n + m.sessions.length, 0);
   const openHubs = hubList.filter((h) => h.status === 'open').length;
   const connLabel =
@@ -68,7 +78,9 @@ export default function App() {
         : 'en vivo'
       : conn === 'connecting'
         ? 'conectando…'
-        : 'sin conexión';
+        : conn === 'unauthorized'
+          ? 'falta el token'
+          : 'sin conexión';
 
   return (
     <div className="mx-auto min-h-full max-w-3xl overflow-x-hidden px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))]">

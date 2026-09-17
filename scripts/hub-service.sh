@@ -42,7 +42,16 @@ panel_url() {
   echo "http://${ts_ip:-<ip-de-esta-máquina>}:$HUB_PORT"
 }
 
-hub_responde() { curl -fsS -m 2 "http://127.0.0.1:$HUB_PORT/api/state" >/dev/null 2>&1; }
+hub_responde() { curl -fsS -m 2 "http://127.0.0.1:$HUB_PORT/api/ping" >/dev/null 2>&1; }
+
+# Enlace del panel con el token (#t=): se abre una vez en cada dispositivo y la
+# app/PWA lo guarda. El mismo token vale para instalar agentes (?t=).
+print_access() {
+  tok=$(cat "$DATA_DIR/token.txt" 2>/dev/null || true)
+  echo "    Panel:    $(panel_url)/#t=${tok:-<token>}   (abre este enlace una vez en cada dispositivo)"
+  echo "    Token:    ${tok:-?}   (agentes y app; archivo: $DATA_DIR/token.txt)"
+  echo "    Agentes:  curl -fsSL \"$(panel_url)/install.sh?t=${tok:-<token>}\" | sh"
+}
 
 espera_hub() {
   i=0
@@ -146,7 +155,7 @@ EOF
 
   espera_hub
   log "Hub activo y con arranque automático al encender la máquina"
-  echo "    Panel: $(panel_url)"
+  print_access
 }
 
 detener_servicio() {
@@ -166,7 +175,7 @@ cmd_start() {
   fi
   espera_hub
   log "Hub activo (arrancará solo al encender la máquina)"
-  echo "    Panel: $(panel_url)"
+  print_access
 }
 
 cmd_stop() {
@@ -202,7 +211,7 @@ cmd_status() {
   fi
   if hub_responde; then
     echo "hub:      respondiendo en el puerto $HUB_PORT ✅"
-    echo "panel:    $(panel_url)"
+    print_access
   else
     echo "hub:      NO responde en el puerto $HUB_PORT ❌  (log: $LOG)"
   fi

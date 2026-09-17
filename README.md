@@ -118,10 +118,12 @@ tailnet (idealmente una que esté siempre encendida).
 ### Instalar el agente en una máquina (un comando)
 
 ```bash
-curl -fsSL http://<ip-tailscale-del-hub>:4000/install.sh | sh
+curl -fsSL "http://<ip-tailscale-del-hub>:4000/install.sh?t=<token-del-hub>" | sh
 ```
 
-Esto descarga el binario para tu OS/arquitectura, escribe `~/.config/csm/agent.json`,
+(`./scripts/hub-service.sh status` en la máquina del hub imprime el comando ya
+completo; sin el token el hub responde 401.) Esto descarga el binario para tu
+OS/arquitectura, escribe `~/.config/csm/agent.json`,
 registra los hooks (con backup `settings.json.csm-backup` la primera vez) e instala el
 servicio (launchd en macOS, systemd de usuario en Linux). En servidores Linux, para que
 el agente sobreviva al logout: `sudo loginctl enable-linger $USER`.
@@ -162,12 +164,13 @@ Además de la PWA, hay una **app Android** (APK, Capacitor sobre la misma web) q
 se conecta a **todos** los hubs de tu tailnet a la vez y muestra una sola lista
 de máquinas, con cambio automático si un hub se apaga.
 
-1. En el teléfono (con Tailscale activo) abre cualquier panel en Chrome,
-   `http://<ip-tailscale>:4000`, y toca **Descargar APK** (el hub lo sirve en
-   `/bin/csm.apk`). Android pide permitir "instalar apps de esta fuente" una vez.
-2. Vuelve al panel y toca **Abrir en la app**: la app arranca ya conectada a ese
-   hub (deep link `csm://hub?url=…`). Alternativa: pegar la URL en la pantalla
-   inicial de la app.
+1. En el teléfono (con Tailscale activo) abre en Chrome el enlace del panel con
+   el token (`http://<ip-tailscale>:4000/#t=…`, lo imprime `hub-service.sh status`),
+   y toca **Descargar APK** (el hub lo sirve en `/bin/csm.apk`). Android pide
+   permitir "instalar apps de esta fuente" una vez.
+2. Vuelve al panel y toca **Abrir en la app**: la app arranca ya emparejada con
+   ese hub (deep link `csm://hub?url=…&token=…`). Alternativa: pegar la URL y el
+   token en la pantalla inicial de la app.
 3. Desde ahí es automático: la app le pregunta a cada hub qué otras máquinas
    tuyas tienen panel (`GET /api/hubs`, que corre `tailscale status` en la
    máquina del hub — solo lista pares **de tu mismo usuario** de Tailscale, con
@@ -290,11 +293,23 @@ Las sesiones de visibilidad limitada (fuera de tmux) solo admiten pausar/termina
 
 ## Seguridad
 
-- Pensado para correr **dentro de una tailnet** (Tailscale): nada expuesto a internet.
-- Los agentes se autentican con el token compartido (`hub/data/token.txt`, o env `CSM_TOKEN`).
+- Pensado para correr **dentro de una tailnet** (Tailscale): nada expuesto a internet y
+  todo el tráfico entre máquinas va cifrado extremo a extremo (WireGuard).
+- **Emparejamiento**: cada hub tiene un token (`~/.local/share/csm-hub/data/token.txt`,
+  o env `CSM_TOKEN`) que exige a todo el mundo: agentes (`/ws/agent`), la app y la PWA
+  (`/ws/app` y `/api/*`) y el instalador (`/install.sh?t=`). Sin token solo se sirven
+  la web estática, los binarios/APK y `/api/ping` (que solo dice "aquí hay un hub").
+  Así, aunque otra persona tenga un dispositivo en tu tailnet (o tu cuenta de
+  Tailscale registre máquinas ajenas), no puede ver ni controlar tus sesiones.
+- El token se pega **una vez por dispositivo**: abre el enlace del panel con `#t=…`
+  (lo imprimen `setup.sh` y `./scripts/hub-service.sh status`) y la PWA lo guarda;
+  en la app Android llega en «Abrir en la app». Los hubs se pasan entre sí los tokens
+  a través de los agentes que reportan a varios, así que la app entra en todos los
+  hubs descubiertos sin volver a emparejar.
 - El receptor de hooks del agente solo escucha en 127.0.0.1.
-- El canal de la app (navegador → hub) no pide login en el MVP: cualquier dispositivo de
-  tu tailnet puede ver el panel. Si compartes la tailnet, añade auth antes.
+- Para rotar el token: borra `token.txt`, reinicia el hub (`hub-service.sh restart`),
+  vuelve a correr el instalador en cada máquina y abre el nuevo enlace en cada
+  dispositivo.
 
 ## Limitaciones conocidas
 

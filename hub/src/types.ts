@@ -76,7 +76,7 @@ export interface HookEvent {
 
 // agente -> hub
 export type AgentMsg =
-  | { type: 'hello'; token: string; machine: MachineInfo; hubs?: string[] }
+  | { type: 'hello'; token: string; machine: MachineInfo; hubs?: (string | { url: string; token?: string })[] }
   | { type: 'sessions'; sessions: SessionInfo[] }
   | { type: 'output'; sessionId: string; data: string; full: boolean }
   | { type: 'event'; sessionId?: string; cwd?: string; event: HookEvent }

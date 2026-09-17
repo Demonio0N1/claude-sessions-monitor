@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
@@ -10,13 +11,16 @@ import * as state from './state.js';
 import * as db from './db.js';
 import { installScript } from './install-sh.js';
 import { discoverHubs, reportHubs } from './discovery.js';
+import { requireTokenHook, tokenFromRequest, tokenOk } from './auth.js';
 import type { AgentMsg, AppMsg } from './types.js';
 
 const app = Fastify({ logger: { level: 'warn' } });
 
 // La app Android (origen http://localhost) y la PWA de un hub consultando a otro
-// hacen peticiones cross-origin. Mismo modelo de confianza que /ws/app: la tailnet.
+// hacen peticiones cross-origin; la autenticación es el token del hub, no el origen.
 await app.register(cors, { origin: true, methods: ['GET', 'HEAD', 'POST', 'DELETE', 'OPTIONS'] });
+// Emparejamiento: /api/* (salvo /api/ping) e /install.sh exigen el token del hub.
+app.addHook('onRequest', requireTokenHook);
 
 // maxPayload amplio: la subida de archivos (put_file) viaja en base64 por el WS.
 // perMessageDeflate: el grueso del tráfico es texto de terminal y JSON repetitivo,
@@ -88,8 +92,14 @@ app.get('/ws/agent', { websocket: true }, (socket: WebSocket, req: FastifyReques
   socket.on('error', () => socket.terminate());
 });
 
-// ---- WebSocket: apps (navegador) ----
-app.get('/ws/app', { websocket: true }, (socket: WebSocket) => {
+// ---- WebSocket: apps (navegador / APK) ----
+// El navegador no puede mandar cabeceras en el handshake: el token va en ?token=.
+// 4401 = "token inválido": la app deja de reintentar hasta que el usuario lo corrija.
+app.get('/ws/app', { websocket: true }, (socket: WebSocket, req: FastifyRequest) => {
+  if (!tokenOk(tokenFromRequest(req))) {
+    socket.close(4401, 'token inválido');
+    return;
+  }
   state.appConnected(socket);
   socket.on('message', (raw: Buffer) => {
     let msg: AppMsg;
@@ -121,6 +131,10 @@ app.get('/ws/app', { websocket: true }, (socket: WebSocket) => {
 });
 
 // ---- REST ----
+// Público: identifica un hub de csm (descubrimiento entre hubs y validación de
+// URL en la app) sin revelar nada. Todo lo demás bajo /api exige el token.
+app.get('/api/ping', async () => ({ csm: true, name: os.hostname().replace(/\.local$/, ''), port: PORT }));
+
 app.get('/api/state', async () => ({ machines: state.snapshot() }));
 
 // Paneles activos en la tailnet (este hub + pares del mismo usuario que responden
@@ -173,5 +187,6 @@ state.loadPersisted();
 
 await app.listen({ port: PORT, host: '0.0.0.0' });
 console.log(`[csm-hub] escuchando en http://0.0.0.0:${PORT}`);
-console.log(`[csm-hub] token de agentes: ${TOKEN}`);
-console.log(`[csm-hub] instalador: curl -fsSL http://<esta-máquina>:${PORT}/install.sh | sh`);
+console.log(`[csm-hub] token del hub (agentes y app): ${TOKEN}`);
+console.log(`[csm-hub] panel con acceso: http://<esta-máquina>:${PORT}/#t=${TOKEN}`);
+console.log(`[csm-hub] instalador: curl -fsSL "http://<esta-máquina>:${PORT}/install.sh?t=${TOKEN}" | sh`);

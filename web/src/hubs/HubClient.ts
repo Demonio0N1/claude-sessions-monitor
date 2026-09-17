@@ -1,6 +1,7 @@
 import type { HubToApp, MachineState } from '../types';
 
-export type ConnStatus = 'connecting' | 'open' | 'closed';
+/** unauthorized: el hub rechazó el token (o no tenemos ninguno); no se reintenta hasta cambiarlo. */
+export type ConnStatus = 'connecting' | 'open' | 'closed' | 'unauthorized';
 type Listener = (msg: HubToApp) => void;
 
 /** Normaliza lo que escribe el usuario o devuelve /api/hubs a `http://host:puerto`. */
@@ -19,26 +20,46 @@ export function normalizeHubUrl(raw: string): string | null {
   }
 }
 
-/** ¿Responde un hub de csm en esa URL? (para validar lo que pega el usuario) */
-export async function probeHub(url: string): Promise<boolean> {
+/** Token embebido en un enlace de acceso (`…/#t=abc`, `?t=abc`, `&token=abc`). */
+export function tokenFromLink(raw: string): string | undefined {
+  const m = /[#?&](?:t|token)=([0-9A-Za-z_-]+)/.exec(raw);
+  return m?.[1];
+}
+
+/** ¿Hay un hub de csm en esa URL? (/api/ping es público) → su nombre. */
+export async function pingHub(url: string): Promise<{ name: string } | null> {
   try {
-    const r = await fetch(`${url}/api/state`, { signal: AbortSignal.timeout(4000) });
-    if (!r.ok) return false;
-    const j = (await r.json()) as { machines?: unknown };
-    return Array.isArray(j?.machines);
+    const r = await fetch(`${url}/api/ping`, { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { csm?: boolean; name?: string };
+    return j?.csm === true ? { name: j.name ?? '' } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** ¿El token abre ese hub? */
+export async function checkToken(url: string, token: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${url}/api/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(4000),
+    });
+    return r.ok;
   } catch {
     return false;
   }
 }
 
 /**
- * Conexión a UN hub: WebSocket /ws/app con reconexión (backoff 1 s → 15 s),
- * replay de suscripciones al reabrir, y el último `state` recibido para que el
- * store fusione varias conexiones en un solo panel.
+ * Conexión a UN hub: WebSocket /ws/app (con el token del hub) con reconexión
+ * (backoff 1 s → 15 s), replay de suscripciones al reabrir, y el último `state`
+ * recibido para que el store fusione varias conexiones en un solo panel.
  */
 export class HubClient {
   readonly url: string;
   name: string;
+  token: string | undefined;
   machines: MachineState[] = [];
   lastStateAt = 0;
   status: ConnStatus = 'closed';
@@ -51,13 +72,26 @@ export class HubClient {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
 
-  constructor(url: string, name?: string) {
+  constructor(url: string, name?: string, token?: string) {
     this.url = url;
     this.name = name ?? new URL(url).host;
+    this.token = token;
+  }
+
+  setToken(token: string | undefined): void {
+    if (token === this.token) return;
+    this.token = token;
+    this.ws?.close();
+    this.ws = null;
+    this.connect();
   }
 
   connect(): void {
     if (this.disposed) return;
+    if (!this.token) {
+      this.setStatus('unauthorized');
+      return;
+    }
     // idempotente: si ya hay una conexión viva o en curso, no abre otra
     if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return;
     if (this.retryTimer) {
@@ -65,7 +99,7 @@ export class HubClient {
       this.retryTimer = null;
     }
     this.setStatus('connecting');
-    const ws = new WebSocket(`${this.url.replace(/^http/i, 'ws')}/ws/app`);
+    const ws = new WebSocket(`${this.url.replace(/^http/i, 'ws')}/ws/app?token=${encodeURIComponent(this.token)}`);
     this.ws = ws;
 
     ws.onopen = () => {
@@ -86,9 +120,17 @@ export class HubClient {
       }
       for (const l of this.listeners) l(msg);
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      if (this.disposed) {
+        this.setStatus('closed');
+        return;
+      }
+      if (ev.code === 4401) {
+        // token rechazado: esperar a que el usuario lo corrija, sin martillar al hub
+        this.setStatus('unauthorized');
+        return;
+      }
       this.setStatus('closed');
-      if (this.disposed) return;
       this.retryTimer = setTimeout(() => this.connect(), this.backoff);
       this.backoff = Math.min(this.backoff * 1.7, 15_000);
     };
@@ -115,8 +157,10 @@ export class HubClient {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }
 
-  fetch(path: string, init?: RequestInit): Promise<Response> {
-    return fetch(this.url + path, init);
+  fetch(path: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers);
+    if (this.token) headers.set('Authorization', `Bearer ${this.token}`);
+    return fetch(this.url + path, { ...init, headers });
   }
 
   subscribe(sessionId: string): void {

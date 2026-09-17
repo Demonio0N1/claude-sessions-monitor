@@ -14,8 +14,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// URLs de los hubs configurados, enviadas en cada hello (ver runAgent).
-var reportedHubs []string
+// Hubs configurados (URL + token), enviados en cada hello (ver runAgent): así
+// un hub que recibe a este agente conoce a los demás hubs y puede darle a la
+// app el token de cada uno.
+var reportedHubs []map[string]string
 
 type machineInfo struct {
 	ID      string `json:"id"`
@@ -46,7 +48,7 @@ func runAgent() {
 	// así los hubs se descubren entre sí a través de los agentes, sin depender de
 	// Tailscale en la máquina del hub.
 	for _, h := range hubs {
-		reportedHubs = append(reportedHubs, strings.TrimSuffix(h.URL, "/"))
+		reportedHubs = append(reportedHubs, map[string]string{"url": strings.TrimSuffix(h.URL, "/"), "token": h.Token})
 	}
 	started := 0
 	var wg sync.WaitGroup

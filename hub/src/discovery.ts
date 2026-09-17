@@ -2,12 +2,14 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PORT } from './config.js';
+import { PORT, TOKEN } from './config.js';
 
 export interface HubEntry {
   name: string;
   url: string;
   self: boolean;
+  /** token de ese hub, si este hub lo conoce (propio, o relayado por un agente) */
+  token?: string;
 }
 
 interface TsNode {
@@ -23,13 +25,18 @@ interface TsStatus {
   Peer?: Record<string, TsNode>;
 }
 
-// ---- fuente 1: los agentes ----
-// Cada agente manda en su hello la lista de hubs a los que reporta. Es la
-// fuente que funciona en cualquier máquina sin depender de Tailscale ni de
-// permisos: si un agente reporta a este hub y a otro, este hub conoce al otro.
+type ReportedHub = string | { url: string; token?: string };
 
-/** machineId -> URLs de hub reportadas por ese agente (host loopback ya reescrito) */
-const agentHubs = new Map<string, string[]>();
+// ---- fuente 1: los agentes ----
+// Cada agente manda en su hello los hubs a los que reporta (URL + token). Es la
+// fuente que funciona en cualquier máquina sin depender de Tailscale ni de
+// permisos: si un agente reporta a este hub y a otro, este hub conoce al otro y
+// puede darle a la app el token para entrar ahí sin volver a emparejar.
+
+/** machineId -> hubs reportados por ese agente (host loopback ya reescrito) */
+const agentHubs = new Map<string, { url: string; token?: string }[]>();
+/** url -> token conocido de ese hub */
+const hubTokens = new Map<string, string>();
 
 function stripMapped(ip: string | undefined): string {
   return (ip ?? '').replace(/^::ffff:/i, '');
@@ -39,10 +46,13 @@ function isLoopbackHost(h: string): boolean {
   return h === '127.0.0.1' || h === 'localhost' || h === '0.0.0.0' || h === '::1' || h === '[::1]';
 }
 
-export function reportHubs(machineId: string, urls: string[], remoteIp: string | undefined): void {
+export function reportHubs(machineId: string, reported: ReportedHub[], remoteIp: string | undefined): void {
   const agentIp = stripMapped(remoteIp);
-  const out: string[] = [];
-  for (const raw of urls) {
+  const out: { url: string; token?: string }[] = [];
+  for (const r of reported) {
+    const raw = typeof r === 'string' ? r : r?.url;
+    const token = typeof r === 'string' ? undefined : r?.token;
+    if (typeof raw !== 'string') continue;
     try {
       const u = new URL(raw);
       if (isLoopbackHost(u.hostname)) {
@@ -52,7 +62,9 @@ export function reportHubs(machineId: string, urls: string[], remoteIp: string |
         if (!agentIp || isLoopbackHost(agentIp)) continue;
         u.hostname = agentIp;
       }
-      out.push(`${u.protocol}//${u.host}`.toLowerCase());
+      const url = `${u.protocol}//${u.host}`.toLowerCase();
+      out.push({ url, token });
+      if (token) hubTokens.set(url, token);
     } catch {
       /* URL inválida: se ignora */
     }
@@ -159,14 +171,15 @@ function ownTailscaleIp(): string | undefined {
 
 // ---- sondeo ----
 
-async function isHub(url: string): Promise<boolean> {
+/** ¿Hay un hub de csm en esa URL? (/api/ping es público y devuelve su nombre) */
+async function ping(url: string): Promise<{ name?: string } | null> {
   try {
-    const r = await fetch(`${url}/api/state`, { signal: AbortSignal.timeout(1000) });
-    if (!r.ok) return false;
-    const j = (await r.json()) as { machines?: unknown };
-    return Array.isArray(j?.machines);
+    const r = await fetch(`${url}/api/ping`, { signal: AbortSignal.timeout(1000) });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { csm?: boolean; name?: string };
+    return j?.csm === true ? { name: j.name } : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -176,7 +189,8 @@ let inflight: Promise<HubEntry[]> | null = null;
 /**
  * Paneles activos: este hub primero, y después todo candidato (pares de
  * Tailscale del mismo usuario + hubs reportados por los agentes) que responda
- * como hub. Nunca lanza: sin fuentes devuelve solo este hub.
+ * como hub. Incluye el token de cada uno cuando se conoce. Nunca lanza: sin
+ * fuentes devuelve solo este hub.
  */
 export function discoverHubs(selfFallbackUrl: string): Promise<HubEntry[]> {
   if (cache && Date.now() - cache.at < 30_000) return Promise.resolve(cache.hubs);
@@ -187,7 +201,7 @@ export function discoverHubs(selfFallbackUrl: string): Promise<HubEntry[]> {
     const selfIp = ipv4(self) ?? ownTailscaleIp();
     const selfUrl = selfIp ? `http://${selfIp}:${PORT}` : selfFallbackUrl;
     const selfName = self?.HostName ?? os.hostname().replace(/\.local$/, '');
-    const hubs: HubEntry[] = [{ name: selfName, url: selfUrl, self: true }];
+    const hubs: HubEntry[] = [{ name: selfName, url: selfUrl, self: true, token: TOKEN }];
 
     const names = new Map<string, string>();
     const candidates = new Set<string>();
@@ -200,8 +214,8 @@ export function discoverHubs(selfFallbackUrl: string): Promise<HubEntry[]> {
       if (p.HostName) names.set(url, p.HostName);
     }
     const mine = ownHosts();
-    for (const urls of agentHubs.values()) {
-      for (const url of urls) {
+    for (const list of agentHubs.values()) {
+      for (const { url } of list) {
         try {
           if (mine.has(new URL(url).hostname)) continue;
         } catch {
@@ -213,7 +227,10 @@ export function discoverHubs(selfFallbackUrl: string): Promise<HubEntry[]> {
     candidates.delete(selfUrl);
 
     const probed = await Promise.allSettled(
-      [...candidates].map(async (url) => ((await isHub(url)) ? { name: names.get(url) ?? '', url, self: false } : null)),
+      [...candidates].map(async (url) => {
+        const p = await ping(url);
+        return p ? { name: p.name ?? names.get(url) ?? '', url, self: false, token: hubTokens.get(url) } : null;
+      }),
     );
     for (const r of probed) if (r.status === 'fulfilled' && r.value) hubs.push(r.value);
     cache = { at: Date.now(), hubs };

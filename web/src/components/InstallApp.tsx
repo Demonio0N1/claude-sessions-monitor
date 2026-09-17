@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
+import { hubs } from '../hubs/store';
 
 const HIDE_KEY = 'csm-hide-apk';
 
 /**
  * Solo en el navegador: si este hub sirve el APK (/bin/csm.apk), ofrece
- * descargarlo y, en Android, abrir la app ya instalada con este hub configurado
- * (deep link csm://hub?url=…, con el APK como respaldo si aún no está instalada).
+ * descargarlo y, en Android, abrir la app ya instalada con este hub y su token
+ * (deep link csm://hub?url=…&token=…, con el APK como respaldo si aún no está
+ * instalada). El token viaja en el enlace porque esta página ya está emparejada.
  */
 export default function InstallApp() {
   const [apk, setApk] = useState<string | null>(null);
@@ -28,7 +30,9 @@ export default function InstallApp() {
 
   if (hidden || !apk) return null;
   const android = /android/i.test(navigator.userAgent);
-  const intent = `intent://hub?url=${encodeURIComponent(location.origin)}#Intent;scheme=csm;package=com.csm.app;S.browser_fallback_url=${encodeURIComponent(apk)};end`;
+  const token = hubs.tokenFor(location.origin);
+  const data = `hub?url=${encodeURIComponent(location.origin)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+  const intent = `intent://${data}#Intent;scheme=csm;package=com.csm.app;S.browser_fallback_url=${encodeURIComponent(apk)};end`;
   const btn = 'rounded-xl border px-3 py-1.5 text-xs font-semibold transition active:scale-95';
 
   return (

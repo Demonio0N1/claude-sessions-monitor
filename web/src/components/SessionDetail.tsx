@@ -27,8 +27,11 @@ export default function SessionDetail({
   const offline = !machine.online;
 
   useEffect(() => {
-    const url = `${hubs.baseFor(machine.info.id)}/api/events?machine=${encodeURIComponent(machine.info.id)}&session=${encodeURIComponent(session.id)}&limit=50`;
-    fetch(url)
+    const path = `/api/events?machine=${encodeURIComponent(machine.info.id)}&session=${encodeURIComponent(session.id)}&limit=50`;
+    const client = hubs.clientFor(machine.info.id);
+    if (!client) return;
+    client
+      .fetch(path)
       .then((r) => r.json())
       .then((d) => setEvents(d.events ?? []))
       .catch(() => setEvents([]));

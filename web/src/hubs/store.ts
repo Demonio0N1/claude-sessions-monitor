@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import type { HubToApp, MachineState } from '../types';
-import { HubClient, normalizeHubUrl, type ConnStatus } from './HubClient';
+import { HubClient, normalizeHubUrl, tokenFromLink, type ConnStatus } from './HubClient';
 import { initNativeBridge, isNative } from './native';
 
-/** origin: la página que sirve la PWA (nunca se persiste ni se quita);
+/** origin: la página que sirve la PWA (nunca se quita);
  *  user: agregado a mano o por deep link; discovery: encontrado vía /api/hubs. */
 export type HubSource = 'origin' | 'user' | 'discovery';
 
@@ -11,6 +11,7 @@ export interface KnownHub {
   url: string;
   name: string;
   source: HubSource;
+  token?: string;
 }
 
 export interface HubStatus extends KnownHub {
@@ -44,10 +45,11 @@ function newRequestId(): string {
 }
 
 /**
- * Un panel, varios hubs: mantiene una conexión por hub conocido, fusiona sus
- * `state` (cada máquina una sola vez, prefiriendo el hub donde está online),
- * enruta acciones y suscripciones de terminal al hub dueño de cada máquina y
- * descubre otros hubs de la tailnet preguntándole a cada hub (`/api/hubs`).
+ * Un panel, varios hubs: mantiene una conexión por hub conocido (cada uno con su
+ * token), fusiona sus `state` (cada máquina una sola vez, prefiriendo el hub
+ * donde está online), enruta acciones y suscripciones de terminal al hub dueño
+ * de cada máquina y descubre otros hubs de la tailnet preguntándole a cada hub
+ * (`/api/hubs`, que trae también el token de los hubs que conoce).
  */
 class HubStore {
   private clients = new Map<string, HubClient>();
@@ -71,8 +73,19 @@ class HubStore {
   start(): void {
     if (this.started) return;
     this.started = true;
-    for (const k of this.loadPersisted()) this.addHub(k.url, k.source, k.name);
-    if (!isNative()) this.addHub(location.origin, 'origin');
+    const persisted = this.loadPersisted();
+    if (isNative()) {
+      for (const k of persisted) this.addHub(k.url, k.source, k.name, k.token);
+    } else {
+      // La PWA: el hub que sirve la página. El token llega una vez en el enlace
+      // (#t=… / ?t=…) y queda guardado; se limpia de la barra de direcciones.
+      const origin = normalizeHubUrl(location.origin) ?? location.origin;
+      let token = tokenFromLink(location.hash) ?? tokenFromLink(location.search);
+      if (token) history.replaceState(null, '', location.pathname);
+      else token = persisted.find((k) => k.url === origin)?.token;
+      this.addHub(origin, 'origin', undefined, token);
+      for (const k of persisted) if (k.source === 'user') this.addHub(k.url, k.source, k.name, k.token);
+    }
     this.discoveryTimer = setInterval(() => void this.discoverNow(), DISCOVERY_EVERY_MS);
     // Al volver a la app (o recuperar red), reconecta al instante en vez de esperar
     // el backoff: en el teléfono la conexión muere cada vez que se va a segundo plano.
@@ -83,7 +96,7 @@ class HubStore {
     window.addEventListener('online', wake);
     window.addEventListener('focus', wake);
     void initNativeBridge({
-      onHub: (url) => this.addHub(url, 'user'),
+      onHub: ({ url, token }) => this.addHub(url, 'user', undefined, token),
       onActive: () => this.reconnectAll(),
     });
     this.recompute();
@@ -105,7 +118,7 @@ class HubStore {
 
   // ---- hubs conocidos ----
 
-  addHub(rawUrl: string, source: HubSource, name?: string): boolean {
+  addHub(rawUrl: string, source: HubSource, name?: string, token?: string): boolean {
     const url = normalizeHubUrl(rawUrl);
     if (!url) return false;
     const canonical = this.aliases.get(url) ?? url;
@@ -114,12 +127,16 @@ class HubStore {
       // un hub descubierto que el usuario agrega a mano pasa a ser permanente
       if (source === 'user' && existing.source === 'discovery') existing.source = 'user';
       if (name && !existing.name) existing.name = name;
+      if (token && token !== existing.token) {
+        existing.token = token;
+        this.clients.get(canonical)?.setToken(token);
+      }
       this.persist();
       this.recompute();
       return true;
     }
-    this.known.set(canonical, { url: canonical, name: name ?? '', source });
-    const client = new HubClient(canonical, name || undefined);
+    this.known.set(canonical, { url: canonical, name: name ?? '', source, token });
+    const client = new HubClient(canonical, name || undefined, token);
     this.clients.set(canonical, client);
     client.onMessage((msg) => this.dispatch(client, msg));
     client.onStatus((s) => {
@@ -130,6 +147,20 @@ class HubStore {
     this.persist();
     this.recompute();
     return true;
+  }
+
+  setToken(url: string, token: string): void {
+    const k = this.known.get(url);
+    if (!k) return;
+    k.token = token;
+    this.clients.get(url)?.setToken(token);
+    this.persist();
+    this.recompute();
+  }
+
+  tokenFor(url: string): string | undefined {
+    const norm = normalizeHubUrl(url);
+    return norm ? this.known.get(this.aliases.get(norm) ?? norm)?.token : undefined;
   }
 
   removeHub(url: string): void {
@@ -161,7 +192,7 @@ class HubStore {
     await Promise.allSettled(
       open.map(async (c) => {
         const r = await c.fetch('/api/hubs', { signal: AbortSignal.timeout(4000) });
-        const j = (await r.json()) as { hubs?: { name?: string; url: string; self?: boolean }[] };
+        const j = (await r.json()) as { hubs?: { name?: string; url: string; self?: boolean; token?: string }[] };
         for (const h of j.hubs ?? []) {
           const url = normalizeHubUrl(h.url);
           if (!url) continue;
@@ -175,7 +206,7 @@ class HubStore {
           }
           const canonical = this.aliases.get(url) ?? url;
           seen.add(canonical);
-          this.addHub(canonical, 'discovery', h.name);
+          this.addHub(canonical, 'discovery', h.name, h.token);
         }
       }),
     );
@@ -197,19 +228,20 @@ class HubStore {
   private loadPersisted(): KnownHub[] {
     try {
       const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as Partial<KnownHub>[];
-      return raw
-        .filter((k): k is KnownHub => typeof k.url === 'string' && (k.source === 'user' || k.source === 'discovery'))
-        .filter((k) => isNative() || k.source === 'user');
+      return raw.filter(
+        (k): k is KnownHub =>
+          typeof k.url === 'string' && (k.source === 'user' || k.source === 'discovery' || k.source === 'origin'),
+      );
     } catch {
       return [];
     }
   }
 
   private persist(): void {
-    // en el navegador solo se guardan los agregados a mano; lo descubierto se
-    // vuelve a encontrar solo y una PWA de un único hub se comporta como siempre
+    // Se guardan los tokens (localStorage es privado por origen/app). En el
+    // navegador lo descubierto no se persiste: se vuelve a encontrar solo.
     const keep = [...this.known.values()].filter(
-      (k) => k.source === 'user' || (k.source === 'discovery' && isNative()),
+      (k) => k.source === 'user' || k.source === 'origin' || (k.source === 'discovery' && isNative()),
     );
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(keep));
@@ -228,10 +260,9 @@ class HubStore {
     return this.hubFor(machineIdOf(globalId));
   }
 
-  /** URL base para peticiones HTTP sobre una máquina (eventos, olvidar…). */
-  baseFor(machineId: string): string {
-    const hub = this.owner.get(machineId) ?? [...this.clients.values()].find((c) => c.status === 'open');
-    return hub?.url ?? this.clients.keys().next().value ?? location.origin;
+  /** Cliente para peticiones HTTP sobre una máquina (eventos, olvidar…). */
+  clientFor(machineId: string): HubClient | undefined {
+    return this.owner.get(machineId) ?? [...this.clients.values()].find((c) => c.status === 'open');
   }
 
   // ---- salida de terminal ----
@@ -326,7 +357,9 @@ class HubStore {
       ? 'open'
       : statuses.includes('connecting')
         ? 'connecting'
-        : 'closed';
+        : statuses.includes('unauthorized')
+          ? 'unauthorized'
+          : 'closed';
     const hubs: HubStatus[] = [...this.known.values()].map((k) => {
       const c = this.clients.get(k.url);
       return { ...k, name: k.name || c?.name || k.url, status: c?.status ?? 'closed', machines: c?.machines.length ?? 0 };

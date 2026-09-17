@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ConnStatus } from '../hubs/HubClient';
-import { normalizeHubUrl, probeHub } from '../hubs/HubClient';
+import { checkToken, normalizeHubUrl, pingHub, tokenFromLink } from '../hubs/HubClient';
 import { hubs, useHubs, type HubSource } from '../hubs/store';
 import { isNative } from '../hubs/native';
 import { toast } from '../toast';
@@ -9,11 +9,13 @@ const DOT: Record<ConnStatus, string> = {
   open: 'bg-emerald-400',
   connecting: 'bg-amber-400 pulse-dot',
   closed: 'bg-red-500',
+  unauthorized: 'bg-amber-400',
 };
 const STATUS_LABEL: Record<ConnStatus, string> = {
   open: 'conectado',
   connecting: 'conectando…',
   closed: 'sin conexión',
+  unauthorized: 'falta el token o es incorrecto',
 };
 const SOURCE_LABEL: Record<HubSource, string> = {
   origin: 'esta página',
@@ -21,28 +23,66 @@ const SOURCE_LABEL: Record<HubSource, string> = {
   discovery: 'descubierto',
 };
 
+const input =
+  'min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm outline-none placeholder:text-zinc-600 focus:border-emerald-500/60';
+
+function TokenInline({ url }: { url: string }) {
+  const [v, setV] = useState('');
+  return (
+    <div className="mt-2 flex gap-2">
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        placeholder="token de este hub"
+        autoCapitalize="none"
+        autoComplete="off"
+        className={`${input} py-1.5 text-xs`}
+      />
+      <button
+        onClick={() => {
+          const t = (tokenFromLink(v) ?? v).trim();
+          if (t) hubs.setToken(url, t);
+        }}
+        disabled={!v.trim()}
+        className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white active:scale-95 disabled:opacity-40"
+      >
+        Guardar
+      </button>
+    </div>
+  );
+}
+
 /** Lista de hubs (paneles) a los que está conectada la app, con alta/baja manual. */
 export default function HubsSheet({ onClose }: { onClose: () => void }) {
   const { hubs: list } = useHubs();
   const [url, setUrl] = useState('');
+  const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function add() {
-    const norm = normalizeHubUrl(url);
+    const norm = normalizeHubUrl(url.replace(/[#?].*$/, ''));
+    const tok = (tokenFromLink(token) ?? tokenFromLink(url) ?? token).trim();
     if (!norm) {
       toast('Escribe una URL o IP válida', 'error');
       return;
     }
     setBusy(true);
-    const ok = await probeHub(norm);
-    setBusy(false);
-    if (!ok) {
+    const ping = await pingHub(norm);
+    if (!ping) {
+      setBusy(false);
       toast(`${norm} no responde como panel de csm`, 'error');
       return;
     }
-    hubs.addHub(norm, 'user');
+    if (tok && !(await checkToken(norm, tok))) {
+      setBusy(false);
+      toast('Token incorrecto para ese hub', 'error');
+      return;
+    }
+    setBusy(false);
+    hubs.addHub(norm, 'user', ping.name, tok || undefined);
     setUrl('');
-    toast('Hub agregado ✓');
+    setToken('');
+    toast(tok ? 'Hub agregado ✓' : 'Hub agregado: falta su token');
   }
 
   async function search() {
@@ -70,25 +110,28 @@ export default function HubsSheet({ onClose }: { onClose: () => void }) {
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
           {list.map((h) => (
-            <div key={h.url} className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${DOT[h.status]}`} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-zinc-100">{h.name}</p>
-                <p className="truncate font-mono text-[11px] text-zinc-500">{h.url}</p>
-                <p className="text-[11px] text-zinc-500">
-                  {STATUS_LABEL[h.status]} · {h.machines} {h.machines === 1 ? 'máquina' : 'máquinas'} ·{' '}
-                  {SOURCE_LABEL[h.source]}
-                </p>
+            <div key={h.url} className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+              <div className="flex items-center gap-3">
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${DOT[h.status]}`} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-zinc-100">{h.name}</p>
+                  <p className="truncate font-mono text-[11px] text-zinc-500">{h.url}</p>
+                  <p className="text-[11px] text-zinc-500">
+                    {STATUS_LABEL[h.status]} · {h.machines} {h.machines === 1 ? 'máquina' : 'máquinas'} ·{' '}
+                    {SOURCE_LABEL[h.source]}
+                  </p>
+                </div>
+                {h.source !== 'origin' && (
+                  <button
+                    onClick={() => hubs.removeHub(h.url)}
+                    className="rounded-lg border border-zinc-700 px-2 py-1 text-xs text-zinc-400 active:scale-95"
+                    title="quitar este hub"
+                  >
+                    quitar
+                  </button>
+                )}
               </div>
-              {h.source !== 'origin' && (
-                <button
-                  onClick={() => hubs.removeHub(h.url)}
-                  className="rounded-lg border border-zinc-700 px-2 py-1 text-xs text-zinc-400 active:scale-95"
-                  title="quitar este hub"
-                >
-                  quitar
-                </button>
-              )}
+              {h.status === 'unauthorized' && <TokenInline url={h.url} />}
             </div>
           ))}
           {list.length === 0 && <p className="text-sm text-zinc-500">Aún no hay hubs.</p>}
@@ -99,16 +142,24 @@ export default function HubsSheet({ onClose }: { onClose: () => void }) {
             <input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && void add()}
               placeholder="http://100.x.x.x:4000"
               inputMode="url"
               autoCapitalize="none"
-              className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm outline-none placeholder:text-zinc-600 focus:border-emerald-500/60"
+              className={input}
+            />
+            <input
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void add()}
+              placeholder="token"
+              autoCapitalize="none"
+              autoComplete="off"
+              className={`${input} max-w-[9rem]`}
             />
             <button
               onClick={() => void add()}
               disabled={busy || !url.trim()}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-40"
+              className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-40"
             >
               Agregar
             </button>
@@ -121,8 +172,9 @@ export default function HubsSheet({ onClose }: { onClose: () => void }) {
             {busy ? 'Buscando…' : '🔍 Buscar paneles en la tailnet'}
           </button>
           <p className="text-[11px] leading-4 text-zinc-500">
-            Cada hub le pregunta a Tailscale qué otras máquinas tuyas tienen panel; la app se
-            conecta a todos y muestra una sola lista. Si un hub se apaga, sigues viendo el resto.
+            Cada hub le pregunta a Tailscale y a sus agentes qué otras máquinas tuyas tienen panel, y
+            pasa el token de los que conoce: la app entra en todos sin volver a emparejar. Si un hub se
+            apaga, sigues viendo el resto.
             {!isNative() && ' Los hubs descubiertos desde el navegador no se guardan.'}
           </p>
         </div>
