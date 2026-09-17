@@ -1,35 +1,13 @@
 import type { ActionKind, MachineActionKind } from './types';
-import { wsClient } from './ws';
+import { hubs, type ActionResult } from './hubs/store';
 
-export interface ActionResult {
-  ok: boolean;
-  message?: string;
-  data?: unknown;
-}
+export type { ActionResult };
 
-// crypto.randomUUID() solo existe en contextos seguros (HTTPS/localhost); la app
-// se usa por HTTP dentro de la tailnet, así que generamos ids a mano.
-function newRequestId(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
-/** Envía una acción de control y espera la respuesta del agente (vía hub). */
+/** Envía una acción de control al hub dueño de la sesión y espera su respuesta. */
 export function runAction(sessionId: string, action: ActionKind, text?: string): Promise<ActionResult> {
-  const requestId = newRequestId();
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      off();
-      resolve({ ok: false, message: 'sin respuesta del hub (timeout)' });
-    }, 12_000);
-    const off = wsClient.onMessage((msg) => {
-      if (msg.type === 'action_result' && msg.requestId === requestId) {
-        clearTimeout(timer);
-        off();
-        resolve({ ok: msg.ok, message: msg.message });
-      }
-    });
-    wsClient.send({ type: 'action', requestId, sessionId, action, text });
-  });
+  const hub = hubs.hubForSession(sessionId);
+  if (!hub) return Promise.resolve({ ok: false, message: 'sesión no encontrada (¿terminó?)' });
+  return hubs.request(hub, { type: 'action', sessionId, action, text }, 12_000);
 }
 
 /** Acción dirigida a una máquina (listar carpetas, crear sesión, subir archivo) y su respuesta. */
@@ -38,23 +16,11 @@ export function runMachineAction(
   action: MachineActionKind,
   opts: { path?: string; fresh?: boolean; name?: string; data?: string; agent?: string; gateway?: boolean } = {},
 ): Promise<ActionResult> {
-  const requestId = newRequestId();
+  const hub = hubs.hubFor(machineId);
+  if (!hub) return Promise.resolve({ ok: false, message: 'la máquina está offline' });
   // subir/bajar un archivo grande por la tailnet puede tardar: margen mayor
   const timeoutMs = action === 'put_file' || action === 'get_file' ? 65_000 : 17_000;
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      off();
-      resolve({ ok: false, message: 'sin respuesta del hub (timeout)' });
-    }, timeoutMs);
-    const off = wsClient.onMessage((msg) => {
-      if (msg.type === 'action_result' && msg.requestId === requestId) {
-        clearTimeout(timer);
-        off();
-        resolve({ ok: msg.ok, message: msg.message, data: msg.data });
-      }
-    });
-    wsClient.send({ type: 'machine_action', requestId, machineId, action, ...opts });
-  });
+  return hubs.request(hub, { type: 'machine_action', machineId, action, ...opts }, timeoutMs);
 }
 
 // ---- historial local de prompts enviados (por sesión) ----

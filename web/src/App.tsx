@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { MachineState, SessionInfo } from './types';
-import { wsClient, type ConnStatus } from './ws';
+import { useHubs } from './hubs/store';
+import { isNative } from './hubs/native';
 import MachineGroup from './components/MachineGroup';
 import SessionDetail from './components/SessionDetail';
+import HubsSheet from './components/HubsSheet';
+import HubSetup from './components/HubSetup';
+import InstallApp from './components/InstallApp';
 import { ToastHost } from './toast';
 
 function useHashRoute(): string {
@@ -16,22 +20,14 @@ function useHashRoute(): string {
 }
 
 export default function App() {
-  const [machines, setMachines] = useState<MachineState[]>([]);
-  const [conn, setConn] = useState<ConnStatus>(wsClient.status);
+  const { ready, machines, status: conn, hubs: hubList } = useHubs();
   const hash = useHashRoute();
+  const [showHubs, setShowHubs] = useState(false);
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    const offMsg = wsClient.onMessage((msg) => {
-      if (msg.type === 'state') setMachines(msg.machines);
-    });
-    const offStatus = wsClient.onStatus(setConn);
     const iv = setInterval(() => setTick((t) => t + 1), 30_000); // refresca "hace Xm"
-    return () => {
-      offMsg();
-      offStatus();
-      clearInterval(iv);
-    };
+    return () => clearInterval(iv);
   }, []);
 
   let detail: { session: SessionInfo; machine: MachineState } | null = null;
@@ -46,8 +42,6 @@ export default function App() {
     }
   }
 
-  const totalSessions = machines.reduce((n, m) => n + m.sessions.length, 0);
-
   if (detail)
     return (
       <>
@@ -55,6 +49,26 @@ export default function App() {
         <ToastHost />
       </>
     );
+
+  // dentro del APK sin ningún hub conocido: primer arranque
+  if (ready && isNative() && hubList.length === 0)
+    return (
+      <>
+        <HubSetup />
+        <ToastHost />
+      </>
+    );
+
+  const totalSessions = machines.reduce((n, m) => n + m.sessions.length, 0);
+  const openHubs = hubList.filter((h) => h.status === 'open').length;
+  const connLabel =
+    conn === 'open'
+      ? hubList.length > 1
+        ? `en vivo · ${openHubs}/${hubList.length} hubs`
+        : 'en vivo'
+      : conn === 'connecting'
+        ? 'conectando…'
+        : 'sin conexión';
 
   return (
     <div className="mx-auto min-h-full max-w-3xl overflow-x-hidden px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))]">
@@ -74,8 +88,11 @@ export default function App() {
             </p>
           </div>
         </div>
-        <div
-          className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+        <button
+          onClick={() => setShowHubs(true)}
+          title="hubs (paneles) conectados"
+          aria-label="Hubs"
+          className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition active:scale-95 ${
             conn === 'open'
               ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
               : conn === 'connecting'
@@ -88,9 +105,12 @@ export default function App() {
               conn === 'open' ? 'bg-emerald-400' : conn === 'connecting' ? 'bg-amber-400 pulse-dot' : 'bg-red-500'
             }`}
           />
-          {conn === 'open' ? 'en vivo' : conn === 'connecting' ? 'conectando…' : 'sin conexión'}
-        </div>
+          {connLabel}
+          <span className="text-zinc-500">⚙</span>
+        </button>
       </header>
+
+      {!isNative() && <InstallApp />}
 
       {machines.length === 0 && (
         <div className="card-in rounded-3xl border border-dashed border-zinc-700 bg-zinc-900/40 p-10 text-center text-zinc-400">
@@ -111,6 +131,7 @@ export default function App() {
           <MachineGroup key={m.info.id} machine={m} />
         ))}
       </div>
+      {showHubs && <HubsSheet onClose={() => setShowHubs(false)} />}
       <ToastHost />
     </div>
   );

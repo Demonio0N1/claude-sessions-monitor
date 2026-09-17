@@ -2,14 +2,20 @@ import fs from 'node:fs';
 import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
+import cors from '@fastify/cors';
 import type { WebSocket } from 'ws';
 import { BIN_DIR, PORT, TOKEN, WEB_DIST } from './config.js';
 import * as state from './state.js';
 import * as db from './db.js';
 import { installScript } from './install-sh.js';
+import { discoverHubs } from './discovery.js';
 import type { AgentMsg, AppMsg } from './types.js';
 
 const app = Fastify({ logger: { level: 'warn' } });
+
+// La app Android (origen http://localhost) y la PWA de un hub consultando a otro
+// hacen peticiones cross-origin. Mismo modelo de confianza que /ws/app: la tailnet.
+await app.register(cors, { origin: true, methods: ['GET', 'HEAD', 'POST', 'DELETE', 'OPTIONS'] });
 
 // maxPayload amplio: la subida de archivos (put_file) viaja en base64 por el WS.
 // perMessageDeflate: el grueso del tráfico es texto de terminal y JSON repetitivo,
@@ -113,6 +119,13 @@ app.get('/ws/app', { websocket: true }, (socket: WebSocket) => {
 
 // ---- REST ----
 app.get('/api/state', async () => ({ machines: state.snapshot() }));
+
+// Paneles activos en la tailnet (este hub + pares del mismo usuario que responden
+// como hub): la app los usa para conectarse a todos y mostrar un solo panel.
+app.get('/api/hubs', async (req) => {
+  const proto = (req.headers['x-forwarded-proto'] as string) ?? 'http';
+  return { hubs: await discoverHubs(`${proto}://${req.headers.host}`) };
+});
 
 app.get<{ Querystring: { machine?: string; session?: string; limit?: string } }>(
   '/api/events',

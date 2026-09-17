@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { EventRow, MachineState, SessionInfo } from '../types';
 import { eventLabel, timeAgo, uptime } from '../format';
 import { promptHistory, rememberPrompt, runAction, runMachineAction } from '../actions';
+import { hubs } from '../hubs/store';
 import { prepareUpload } from '../image';
 import { toast } from '../toast';
 import StatusBadge from './StatusBadge';
@@ -26,7 +27,7 @@ export default function SessionDetail({
   const offline = !machine.online;
 
   useEffect(() => {
-    const url = `/api/events?machine=${encodeURIComponent(machine.info.id)}&session=${encodeURIComponent(session.id)}&limit=50`;
+    const url = `${hubs.baseFor(machine.info.id)}/api/events?machine=${encodeURIComponent(machine.info.id)}&session=${encodeURIComponent(session.id)}&limit=50`;
     fetch(url)
       .then((r) => r.json())
       .then((d) => setEvents(d.events ?? []))

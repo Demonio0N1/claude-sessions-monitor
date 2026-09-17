@@ -3,7 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
-import { wsClient } from '../ws';
+import { hubs } from '../hubs/store';
 
 export default function Terminal({ globalId, title }: { globalId: string; title?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -79,7 +79,7 @@ export default function Terminal({ globalId, title }: { globalId: string; title?
       term.write(data);
     };
 
-    const off = wsClient.onMessage((msg) => {
+    const off = hubs.onMessage((msg) => {
       if (msg.type !== 'output' || msg.sessionId !== globalId) return;
       if (!msg.full) {
         term.write(msg.data);
@@ -106,12 +106,12 @@ export default function Terminal({ globalId, title }: { globalId: string; title?
       }
     });
 
-    wsClient.subscribe(globalId);
+    hubs.subscribe(globalId);
 
     return () => {
       off();
       offScroll.dispose();
-      wsClient.unsubscribe(globalId);
+      hubs.unsubscribe(globalId);
       ro.disconnect();
       webgl?.dispose();
       term.dispose();

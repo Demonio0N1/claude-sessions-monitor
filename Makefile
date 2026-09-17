@@ -1,6 +1,14 @@
 BIN_DIR := hub/public/bin
 
-.PHONY: agent-build hub-dev web-dev web-build icons fake-agent build
+.PHONY: agent-build hub-dev web-dev web-build icons fake-agent build apk
+
+# APK Android (debug, para instalar desde el panel). Requiere JDK 21 + Android SDK
+# en la máquina que compila (ver README → "App Android"); lo deja donde el hub lo
+# sirve: /bin/csm.apk
+apk: web-build
+	cd web && npx cap sync android && cd android && ./gradlew assembleDebug
+	cp web/android/app/build/outputs/apk/debug/app-debug.apk $(BIN_DIR)/csm.apk
+	@ls -lh $(BIN_DIR)/csm.apk
 
 # Compila el agente para todas las plataformas y lo deja donde el hub lo sirve
 agent-build:

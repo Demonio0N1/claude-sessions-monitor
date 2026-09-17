@@ -5,6 +5,7 @@ import SessionCard from './SessionCard';
 import NewSessionModal from './NewSessionModal';
 import ScreenshotModal from './ScreenshotModal';
 import FilesModal from './FilesModal';
+import { hubs } from '../hubs/store';
 
 const OS_ICON: Record<string, string> = { darwin: '🍎', linux: '🐧', windows: '🪟' };
 
@@ -51,7 +52,7 @@ export default function MachineGroup({ machine }: { machine: MachineState }) {
           <button
             onClick={() => {
               if (confirm(`¿Olvidar la máquina "${info.name}"? Se borra del panel y su historial.`)) {
-                fetch(`/api/machines/${encodeURIComponent(info.id)}`, { method: 'DELETE' });
+                void hubs.forgetMachine(info.id);
               }
             }}
             className={btn}

@@ -8,3 +8,13 @@ web/public/icons/*.png
 .DS_Store
 agent/agent
 *.tsbuildinfo
+# App Android (Capacitor): se commitea el proyecto, no lo generado
+web/assets/*.png
+web/android/.gradle/
+web/android/build/
+web/android/app/build/
+web/android/local.properties
+web/android/.idea/
+web/android/app/src/main/assets/public/
+web/android/app/src/main/assets/capacitor.config.json
+web/android/app/src/main/assets/capacitor.plugins.json

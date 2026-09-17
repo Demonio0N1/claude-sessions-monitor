@@ -80,3 +80,12 @@ for (const size of [180, 192, 512]) {
   fs.writeFileSync(path.join(outDir, `icon-${size}.png`), makeIcon(size));
   console.log(`icon-${size}.png`);
 }
+
+// Fuente para los íconos de la app Android (@capacitor/assets pide 1024 px).
+const assetsDir = path.join(outDir, '..', '..', 'assets');
+fs.mkdirSync(assetsDir, { recursive: true });
+const big = makeIcon(1024);
+for (const name of ['icon.png', 'icon-only.png']) {
+  fs.writeFileSync(path.join(assetsDir, name), big);
+  console.log(`assets/${name}`);
+}
